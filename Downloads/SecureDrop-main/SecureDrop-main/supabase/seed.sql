@@ -1,0 +1,2 @@
+-- Seed data placeholder for initial project setup.
+-- Add additional seed scripts in later phases.
