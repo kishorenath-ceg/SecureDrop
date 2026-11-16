@@ -2,7 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { env } from '../config/env.js';
 import { listFilesForOwner } from '../services/fileService.js';
 import { buildDashboardStats, summarizeDashboard } from '../services/dashboardService.js';
-import { buildPublicShareUrl, listShareLinksForOwner } from '../services/shareService.js';
+import { buildPublicShareUrl, getShareFileIds, listShareLinksForOwner } from '../services/shareService.js';
 
 export async function dashboardStatsController(
   request: FastifyRequest,
@@ -56,9 +56,13 @@ export async function dashboardFilesController(
   const shareLinks = listShareLinksForOwner(user.id);
 
   const data = files.map((file) => {
-    const shareLink = shareLinks.find((link) => link.fileId === file.id);
-    const shareUrl = shareLink
-      ? buildPublicShareUrl(env.APP_URL, shareLink.customSlug ?? shareLink.token)
+    const shareLink = shareLinks.find((link) => getShareFileIds(link).includes(file.id));
+    const linkedFileIds = shareLink ? getShareFileIds(shareLink) : [];
+    const bundleCount = linkedFileIds.length > 1 ? linkedFileIds.length : null;
+    const isBundleLead = !bundleCount || linkedFileIds[0] === file.id;
+    const isActiveShare = Boolean(shareLink && shareLink.isActive && !shareLink.isRevoked);
+    const shareUrl = shareLink && isBundleLead
+      ? buildPublicShareUrl(env.APP_URL, shareLink.token, shareLink.customSlug)
       : null;
 
     return {
@@ -71,9 +75,15 @@ export async function dashboardFilesController(
         year: 'numeric',
       }),
       shareLink: shareUrl ?? 'Not shared',
+      bundleLabel: shareLink && bundleCount && !isBundleLead
+        ? `Included in the shared ZIP (${bundleCount} files)`
+        : null,
+      bundleCount,
       expiration: shareLink?.expiresAt ? new Date(shareLink.expiresAt).toLocaleString() : 'No expiration',
       downloads: `${shareLink?.downloadCount ?? 0} / ${shareLink?.maxDownloads == null ? '∞' : shareLink.maxDownloads}`,
-      status: shareLink && shareLink.isActive && !shareLink.isRevoked ? 'Active' : 'Unavailable',
+      status: isActiveShare
+        ? bundleCount && !isBundleLead ? 'Included in ZIP' : 'Active'
+        : 'Unavailable',
       actions: shareUrl ? ['Copy link', 'Open link'] : ['Create link'],
     };
   });

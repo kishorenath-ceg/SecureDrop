@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   canDownload,
+  buildPublicShareUrl,
+  buildShareDownloadUrl,
+  buildShareTicketUrl,
   createShareRecord,
+  createShareDownloadTicket,
   createShareToken,
+  consumeShareDownloadTicket,
+  deleteShareLinksForFile,
   evaluateShareAccess,
   getShareRecordBySlug,
   getShareRecordByToken,
+  getShareFileIds,
   hashPassword,
   incrementShareDownload,
   validateShareLinkConfig,
@@ -32,12 +39,12 @@ describe('share service', () => {
 
   it('preserves the uploaded file association in the share config', () => {
     const result = validateShareLinkConfig({
-      fileId: 'file-123',
+      fileIds: ['file-123', 'file-456'],
       customSlug: 'project-report',
     });
 
     expect(result.success).toBe(true);
-    expect(result.data?.fileId).toBe('file-123');
+    expect(result.data?.fileIds).toEqual(['file-123', 'file-456']);
   });
 
   it('rejects unsafe custom slugs', () => {
@@ -53,8 +60,8 @@ describe('share service', () => {
     expect(valid.success).toBe(true);
   });
 
-  it('rejects expired links', () => {
-    const result = evaluateShareAccess({
+  it('rejects expired links', async () => {
+    const result = await evaluateShareAccess({
       expiresAt: new Date(Date.now() - 1000).toISOString(),
       isActive: true,
       isRevoked: false,
@@ -66,8 +73,8 @@ describe('share service', () => {
     expect(result.reason).toBe('LINK_EXPIRED');
   });
 
-  it('rejects links that reached download limits', () => {
-    const result = evaluateShareAccess({
+  it('rejects links that reached download limits', async () => {
+    const result = await evaluateShareAccess({
       expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       isActive: true,
       isRevoked: false,
@@ -105,12 +112,53 @@ describe('share service', () => {
     expect(getShareRecordByToken(record.token)?.downloadCount).toBe(1);
   });
 
+  it('removes a deleted file share and its slug index', () => {
+    const record = createShareRecord({
+      ownerId: 'user-delete-test',
+      fileId: 'file-delete-test',
+      customSlug: 'delete-test-share',
+    });
+
+    deleteShareLinksForFile('file-delete-test');
+
+    expect(getShareRecordByToken(record.token)).toBeNull();
+    expect(getShareRecordBySlug('delete-test-share')).toBeNull();
+  });
+
+  it('associates one share record with every file in a ZIP transfer', () => {
+    const record = createShareRecord({
+      ownerId: 'user-bundle-test',
+      fileIds: ['file-bundle-a', 'file-bundle-b'],
+      customSlug: 'bundle-test-share',
+    });
+
+    expect(getShareFileIds(record)).toEqual(['file-bundle-a', 'file-bundle-b']);
+    deleteShareLinksForFile('file-bundle-b');
+    expect(getShareRecordByToken(record.token)).toBeNull();
+  });
+
+  it('allows a download ticket only once and only for its share token', () => {
+    const ticket = createShareDownloadTicket('share-token');
+    expect(consumeShareDownloadTicket(ticket, 'different-token')).toBe(false);
+    expect(consumeShareDownloadTicket(ticket, 'share-token')).toBe(true);
+    expect(consumeShareDownloadTicket(ticket, 'share-token')).toBe(false);
+  });
+
   it('builds a secure download URL tied to the file and share token', () => {
-    const url = new URL('http://localhost:5173');
-    expect(new URL('/api/files/file-123/download?token=test-token', url).toString()).toContain('file-123');
+    expect(buildShareDownloadUrl('http://localhost:3001', 'file-123', 'test-token')).toBe(
+      'http://localhost:3001/api/files/file-123/download?token=test-token'
+    );
+  });
+
+  it('builds an authorized download URL without exposing the password', () => {
+    expect(buildShareTicketUrl('https://api.example.com', 'share-token', 'short-lived-ticket')).toBe(
+      'https://api.example.com/api/share/share-token/download/short-lived-ticket'
+    );
   });
 
   it('builds share URLs from the configured application base URL', () => {
-    expect(new URL('/s/quarterly-report', 'https://app.example.com').toString()).toBe('https://app.example.com/s/quarterly-report');
+    expect(buildPublicShareUrl('https://app.example.com', 'secure-token', 'quarterly-report')).toBe(
+      'https://app.example.com/SecureDrop/quarterly-report-secure-token'
+    );
   });
 });

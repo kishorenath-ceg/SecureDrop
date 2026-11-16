@@ -1,5 +1,10 @@
-import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { pbkdf2, randomBytes, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
+
+const PBKDF2_ITERATIONS = 60_000;
+const DOWNLOAD_TICKET_TTL_MS = 5 * 60 * 1000;
+export const MAX_SHARE_FILE_COUNT = 50;
+export const MAX_SHARE_TRANSFER_BYTES = 1024 * 1024 * 1024;
 
 export const createShareToken = () =>
   randomBytes(18).toString('base64url').replace(/[-_]/g, (char) => (char === '-' ? 'A' : 'B')).slice(0, 24);
@@ -20,6 +25,7 @@ export function normalizeCustomSlug(slug?: string | null) {
 
 export const shareLinkConfigSchema = z.object({
   fileId: z.string().trim().min(1).max(255).optional().nullable(),
+  fileIds: z.array(z.string().trim().min(1).max(255)).min(1).max(MAX_SHARE_FILE_COUNT).optional(),
   customSlug: z
     .string()
     .trim()
@@ -84,7 +90,17 @@ export function canDownload(downloadCount: number, maxDownloads?: number | null)
 
 export async function hashPassword(password: string) {
   const salt = randomBytes(16).toString('hex');
-  const hash = pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+  const hash = await new Promise<string>((resolve, reject) => {
+    pbkdf2(password, salt, PBKDF2_ITERATIONS, 64, 'sha512', (error, derivedKey) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve(derivedKey.toString('hex'));
+    });
+  });
+
   return `${salt}:${hash}`;
 }
 
@@ -94,12 +110,21 @@ export async function verifyPasswordHash(password: string, storedHash: string | 
   }
 
   const [salt, hash] = storedHash.split(':');
-  const candidate = pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+  const candidate = await new Promise<string>((resolve, reject) => {
+    pbkdf2(password, salt, PBKDF2_ITERATIONS, 64, 'sha512', (error, derivedKey) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve(derivedKey.toString('hex'));
+    });
+  });
 
   return timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(candidate, 'hex'));
 }
 
-export function evaluateShareAccess({
+export async function evaluateShareAccess({
   expiresAt,
   isActive = true,
   isRevoked = false,
@@ -115,7 +140,7 @@ export function evaluateShareAccess({
   password?: string | null;
   downloadCount?: number;
   maxDownloads?: number | null;
-}): ShareAccessEvaluation {
+}): Promise<ShareAccessEvaluation> {
   const expired = isExpired(expiresAt);
   const passwordRequired = Boolean(passwordHash);
 
@@ -132,7 +157,7 @@ export function evaluateShareAccess({
   }
 
   if (passwordRequired) {
-    const validPassword = password ? verifyPasswordHash(password, passwordHash) : false;
+    const validPassword = password ? await verifyPasswordHash(password, passwordHash) : false;
     if (!validPassword) {
       return {
         allowed: false,
@@ -170,6 +195,7 @@ export type ShareLinkRecord = {
   token: string;
   customSlug?: string | null;
   fileId?: string | null;
+  fileIds: string[];
   passwordHash?: string | null;
   expiresAt?: string | null;
   maxDownloads?: number | null;
@@ -183,12 +209,44 @@ export type ShareLinkRecord = {
 
 export const shareLinkStore = new Map<string, ShareLinkRecord>();
 export const shareSlugIndex = new Map<string, string>();
+const shareDownloadTickets = new Map<string, { token: string; expiresAt: number }>();
+
+export function getShareFileIds(share: Pick<ShareLinkRecord, 'fileId' | 'fileIds'>) {
+  return share.fileIds.length > 0 ? share.fileIds : share.fileId ? [share.fileId] : [];
+}
+
+export function createShareDownloadTicket(token: string) {
+  const now = Date.now();
+  for (const [ticket, record] of shareDownloadTickets) {
+    if (record.expiresAt <= now) {
+      shareDownloadTickets.delete(ticket);
+    }
+  }
+
+  const ticket = randomBytes(32).toString('base64url');
+  shareDownloadTickets.set(ticket, { token, expiresAt: now + DOWNLOAD_TICKET_TTL_MS });
+  return ticket;
+}
+
+export function consumeShareDownloadTicket(ticket: string, token: string) {
+  const record = shareDownloadTickets.get(ticket);
+  if (!record) return false;
+  if (record.expiresAt <= Date.now()) {
+    shareDownloadTickets.delete(ticket);
+    return false;
+  }
+  if (record.token !== token) return false;
+
+  shareDownloadTickets.delete(ticket);
+  return true;
+}
 
 export function createShareRecord(input: {
   ownerId: string;
   token?: string;
   customSlug?: string | null;
   fileId?: string | null;
+  fileIds?: string[];
   passwordHash?: string | null;
   expiresAt?: string | null;
   maxDownloads?: number | null;
@@ -205,6 +263,7 @@ export function createShareRecord(input: {
     token,
     customSlug,
     fileId: input.fileId ?? null,
+    fileIds: Array.from(new Set(input.fileIds ?? (input.fileId ? [input.fileId] : []))),
     passwordHash: input.passwordHash ?? null,
     expiresAt: input.expiresAt ?? null,
     maxDownloads: input.maxDownloads ?? null,
@@ -239,6 +298,19 @@ export function listShareLinksForOwner(ownerId: string) {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
+export function deleteShareLinksForFile(fileId: string) {
+  for (const [token, record] of shareLinkStore) {
+    if (!getShareFileIds(record).includes(fileId)) {
+      continue;
+    }
+
+    shareLinkStore.delete(token);
+    if (record.customSlug && shareSlugIndex.get(record.customSlug) === token) {
+      shareSlugIndex.delete(record.customSlug);
+    }
+  }
+}
+
 export function revokeShareLinkById(id: string) {
   const record = Array.from(shareLinkStore.values()).find((item) => item.id === id);
   if (!record) {
@@ -262,10 +334,15 @@ export function incrementShareDownload(token: string) {
   return record;
 }
 
-export function buildPublicShareUrl(baseUrl: string, token: string) {
-  return `${baseUrl.replace(/\/$/, '')}/s/${token}`;
+export function buildPublicShareUrl(baseUrl: string, token: string, filenameSlug?: string | null) {
+  const filename = normalizeCustomSlug(filenameSlug) ?? 'file';
+  return `${baseUrl.replace(/\/$/, '')}/SecureDrop/${filename}-${token}`;
 }
 
 export function buildShareDownloadUrl(baseUrl: string, fileId: string, token: string) {
   return `${baseUrl.replace(/\/$/, '')}/api/files/${encodeURIComponent(fileId)}/download?token=${encodeURIComponent(token)}`;
+}
+
+export function buildShareTicketUrl(baseUrl: string, token: string, ticket: string) {
+  return `${baseUrl.replace(/\/$/, '')}/api/share/${encodeURIComponent(token)}/download/${encodeURIComponent(ticket)}`;
 }

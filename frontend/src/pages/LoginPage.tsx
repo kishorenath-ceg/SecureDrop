@@ -1,13 +1,14 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { loginUser, registerUser } from '../services/authService';
+import { BrandLogo } from '../components/BrandLogo';
 
 export function LoginPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [email, setEmail] = useState('user@example.com');
-  const [password, setPassword] = useState('StrongPass123!');
-  const [displayName, setDisplayName] = useState('Jane Doe');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -17,7 +18,6 @@ export function LoginPage() {
     setStatus(null);
 
     try {
-      const payload = { email, password, displayName: displayName || undefined };
       const response =
         mode === 'login'
           ? await loginUser({ email, password })
@@ -38,80 +38,134 @@ export function LoginPage() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 py-16 text-white">
-      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/80 p-8 shadow-2xl shadow-sky-950/20">
-        <div className="mb-8 text-center">
-          <div className="text-2xl font-semibold">SecureDrop</div>
-          <p className="mt-2 text-sm text-slate-400">Authenticated file sharing, protected by design.</p>
+    <main className="transfer-shell relative min-h-screen overflow-hidden px-5 pb-12 pt-6 text-white sm:px-8">
+      <div aria-hidden="true" className="transfer-orb transfer-orb-one" />
+      <div aria-hidden="true" className="transfer-orb transfer-orb-two" />
+
+      <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between">
+        <BrandLogo />
+        <a href="/" className="rounded-full border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20">
+          Back to home
+        </a>
+      </header>
+
+      <section className="relative z-10 mx-auto grid max-w-7xl items-center gap-10 py-12 lg:min-h-[calc(100vh-7rem)] lg:grid-cols-[1fr_0.85fr] lg:py-8">
+        <div className="motion-enter">
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-4 py-2 text-sm font-semibold backdrop-blur">
+            <span className="h-2 w-2 rounded-full bg-emerald-300" />
+            Private transfers, on your terms
+          </span>
+          <h1 className="mt-7 max-w-xl text-5xl font-black leading-[1.04] tracking-tight sm:text-6xl">
+            Your files,
+            <span className="block text-cyan-100">in trusted hands.</span>
+          </h1>
+          <p className="mt-6 max-w-lg text-lg leading-8 text-indigo-50/90">
+            Sign in to manage your uploads, protect share links, and keep track of every transfer.
+          </p>
+          <div className="mt-8 flex flex-wrap gap-3 text-sm font-semibold text-white/90">
+            <span className="rounded-full bg-white/10 px-4 py-2 ring-1 ring-white/20">Private storage</span>
+            <span className="rounded-full bg-white/10 px-4 py-2 ring-1 ring-white/20">Secure links</span>
+            <span className="rounded-full bg-white/10 px-4 py-2 ring-1 ring-white/20">You stay in control</span>
+          </div>
         </div>
 
-        <div className="mb-6 inline-flex rounded-full border border-slate-700 bg-slate-950 p-1">
-          <button
-            type="button"
-            onClick={() => setMode('login')}
-            className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-              mode === 'login' ? 'bg-sky-500 text-slate-950' : 'text-slate-300'
-            }`}
-          >
-            Login
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('register')}
-            className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-              mode === 'register' ? 'bg-sky-500 text-slate-950' : 'text-slate-300'
-            }`}
-          >
-            Register
-          </button>
-        </div>
+        <div className="transfer-card-3d motion-enter motion-enter-delay mx-auto w-full max-w-lg rounded-[2rem] border border-white/60 bg-white/95 p-6 text-slate-900 shadow-[0_32px_100px_rgba(22,25,87,0.28)] backdrop-blur-xl sm:p-9">
+          <div className="mb-7">
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-indigo-500">
+              {mode === 'login' ? 'Welcome back' : 'Get started'}
+            </p>
+            <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
+              {mode === 'login' ? 'Sign in to SecureDrop' : 'Create your account'}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              {mode === 'login' ? 'Pick up where you left off.' : 'Create an account to start sharing securely.'}
+            </p>
+          </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {mode === 'register' && (
-            <label className="block">
-              <span className="mb-2 block text-sm text-slate-300">Display name</span>
+          <div className="mb-6 grid grid-cols-2 rounded-xl bg-indigo-50 p-1">
+            <button
+              type="button"
+              onClick={() => {
+                setMode('login');
+                setStatus(null);
+              }}
+              className={`rounded-lg px-4 py-2.5 text-sm font-bold transition ${
+                mode === 'login' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('register');
+                setStatus(null);
+              }}
+              className={`rounded-lg px-4 py-2.5 text-sm font-bold transition ${
+                mode === 'register' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Create account
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {mode === 'register' && (
+              <label className="block text-sm font-semibold text-slate-700">
+                Display name
+                <input
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  autoComplete="name"
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 font-normal outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                  placeholder="Your name"
+                />
+              </label>
+            )}
+
+            <label className="block text-sm font-semibold text-slate-700">
+              Email address
               <input
-                value={displayName}
-                onChange={(event) => setDisplayName(event.target.value)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none ring-0 transition focus:border-sky-500"
-                placeholder="Jane Doe"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+                required
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 font-normal outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                placeholder="you@example.com"
               />
             </label>
+
+            <label className="block text-sm font-semibold text-slate-700">
+              Password
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                required
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 font-normal outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                placeholder="Enter your password"
+              />
+            </label>
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-3.5 font-bold text-white shadow-lg shadow-indigo-200 transition duration-300 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmitting ? 'Please wait…' : mode === 'login' ? 'Sign in securely' : 'Create account'}
+            </button>
+          </form>
+
+          {status && (
+            <p role="status" className="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+              {status}
+            </p>
           )}
-
-          <label className="block">
-            <span className="mb-2 block text-sm text-slate-300">Email</span>
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none transition focus:border-sky-500"
-              placeholder="you@example.com"
-            />
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm text-slate-300">Password</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white outline-none transition focus:border-sky-500"
-              placeholder="••••••••"
-            />
-          </label>
-
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full rounded-xl bg-sky-500 px-4 py-3 font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSubmitting ? 'Please wait...' : mode === 'login' ? 'Sign in' : 'Create account'}
-          </button>
-        </form>
-
-        {status && <p className="mt-4 text-sm text-slate-300">{status}</p>}
-      </div>
+          <p className="mt-5 text-center text-xs text-slate-400">Your account is protected by Supabase authentication.</p>
+        </div>
+      </section>
     </main>
   );
 }

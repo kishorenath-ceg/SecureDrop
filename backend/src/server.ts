@@ -17,6 +17,38 @@ const allowedOrigins = [
   'http://127.0.0.1:5173',
 ].filter(Boolean) as string[];
 
+function isLocalDevelopmentOrigin(origin?: string) {
+  if (process.env.NODE_ENV === 'production' || !origin) {
+    return false;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false;
+  }
+
+  if (url.protocol !== 'http:' || !url.port) {
+    return false;
+  }
+
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    return true;
+  }
+
+  const octets = url.hostname.split('.').map(Number);
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return false;
+  }
+
+  return (
+    octets[0] === 10 ||
+    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+    (octets[0] === 192 && octets[1] === 168)
+  );
+}
+
 const app = Fastify({
   logger: true,
 });
@@ -30,7 +62,9 @@ app.addHook('onRequest', async (_request, reply) => {
 });
 
 app.register(cors, {
-  origin: allowedOrigins,
+  origin: (origin, callback) => {
+    callback(null, !origin || allowedOrigins.includes(origin) || isLocalDevelopmentOrigin(origin));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -44,7 +78,12 @@ app.register(rateLimit, {
   ban: 5,
 });
 
-app.register(multipart);
+app.register(multipart, {
+  limits: {
+    fileSize: 100 * 1024 * 1024,
+    files: 1,
+  },
+});
 app.register(authRoutes);
 app.register(profileRoutes);
 app.register(fileRoutes);

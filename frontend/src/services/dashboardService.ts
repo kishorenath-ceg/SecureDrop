@@ -11,6 +11,8 @@ export type DashboardFileItem = {
   size: string;
   uploadDate: string;
   shareLink: string;
+  bundleLabel: string | null;
+  bundleCount: number | null;
   expiration: string;
   downloads: string;
   status: string;
@@ -28,4 +30,10 @@ export async function getDashboardStats() {
 
 export async function getDashboardFiles() {
   return apiFetch<{ files: DashboardFileItem[] }>('/api/dashboard/files');
+}
+
+export async function deleteDashboardFile(fileId: string) {
+  return apiFetch<{ deleted: boolean }>(`/api/files/${encodeURIComponent(fileId)}`, {
+    method: 'DELETE',
+  });
 }

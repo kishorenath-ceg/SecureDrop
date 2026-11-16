@@ -7,21 +7,19 @@
 # Dependencies
 node_modules/
 
-# Build output
+# Build files
 frontend/dist/
 backend/dist/
-
-# Coverage
-coverage/
 
 # Logs
 npm-debug.log*
 *.log
+coverage/
 
 # IDE
 .vscode/
 .idea/
 
-# OS
+# System files
 .DS_Store
 Thumbs.db

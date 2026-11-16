@@ -2,6 +2,7 @@ import { apiFetch } from '../lib/api';
 
 export type ShareLinkConfig = {
   fileId?: string;
+  fileIds?: string[];
   customSlug?: string;
   expiresAt?: string;
   maxDownloads?: number;
@@ -13,6 +14,9 @@ export type ShareLinkResponse = {
   id: string;
   token: string;
   fileId: string | null;
+  fileIds?: string[];
+  fileCount?: number;
+  totalSizeBytes?: number;
   shareUrl: string;
   customSlug: string | null;
   expiresAt: string | null;
@@ -37,6 +41,12 @@ export type PublicShareStatus = {
   downloadCount: number;
   expiresAt: string | null;
   status: string;
+  fileName: string | null;
+  sizeBytes: number | null;
+  mimeType: string | null;
+  fileCount: number;
+  files: Array<{ name: string; sizeBytes: number; mimeType: string }>;
+  message: string | null;
 };
 
 export async function getPublicShare(token: string) {

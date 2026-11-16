@@ -3,6 +3,7 @@ import { getSessionUser } from '../services/authService.js';
 import {
   buildStoragePath,
   createUploadRecord,
+  deleteOwnedFile,
   getFileById,
   getOwnedFile,
   listFilesForOwner,
@@ -10,7 +11,7 @@ import {
   storeUploadedFile,
   uploadFileSchema,
 } from '../services/fileService.js';
-import { evaluateShareAccess, getShareRecordBySlug, getShareRecordByToken } from '../services/shareService.js';
+import { evaluateShareAccess, getShareFileIds, getShareRecordBySlug, getShareRecordByToken } from '../services/shareService.js';
 
 export async function listFilesController(
   request: FastifyRequest,
@@ -39,6 +40,62 @@ export async function listFilesController(
   });
 }
 
+export async function deleteFileController(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const params = request.params as { id?: string };
+  const fileId = params.id;
+  const user = (request as { user?: { id: string } }).user;
+
+  if (!fileId) {
+    return reply.code(400).send({
+      success: false,
+      error: {
+        code: 'INVALID_FILE_ID',
+        message: 'A valid file ID is required.',
+      },
+    });
+  }
+
+  if (!user) {
+    return reply.code(401).send({
+      success: false,
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Authentication required to delete files.',
+      },
+    });
+  }
+
+  try {
+    const deleted = await deleteOwnedFile(fileId, user.id);
+    if (!deleted) {
+      return reply.code(404).send({
+        success: false,
+        error: {
+          code: 'FILE_NOT_FOUND',
+          message: 'The file was not found or does not belong to this account.',
+        },
+      });
+    }
+
+    return reply.send({
+      success: true,
+      data: { deleted: true },
+    });
+  } catch (error) {
+    request.log.error({ err: error }, 'Failed to delete an owned file');
+    return reply.code(500).send({
+      success: false,
+      error: {
+        code: 'FILE_DELETE_FAILED',
+        message: error instanceof Error ? error.message : 'Unable to delete the file.',
+      },
+    });
+  }
+}
+
 export async function downloadFileController(
   request: FastifyRequest,
   reply: FastifyReply
@@ -64,7 +121,8 @@ export async function downloadFileController(
       file = await getOwnedFile(fileId, user.id);
     } else if (query.token) {
       const share = getShareRecordByToken(query.token) ?? getShareRecordBySlug(query.token);
-      if (!share || !share.fileId || share.fileId !== fileId) {
+      const sharedFileIds = share ? getShareFileIds(share) : [];
+      if (!share || sharedFileIds.length !== 1 || sharedFileIds[0] !== fileId) {
         return reply.code(403).send({
           success: false,
           error: {
@@ -74,7 +132,7 @@ export async function downloadFileController(
         });
       }
 
-      const evaluation = evaluateShareAccess({
+      const evaluation = await evaluateShareAccess({
         expiresAt: share.expiresAt,
         isActive: share.isActive,
         isRevoked: share.isRevoked,

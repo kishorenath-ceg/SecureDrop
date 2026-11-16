@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase.js';
+import { deleteShareLinksForFile } from './shareService.js';
 import { buildSupabaseStoragePath, DEFAULT_STORAGE_BUCKET, isSupabaseConfigured } from './supabaseService.js';
 
 export const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
@@ -196,6 +197,49 @@ export async function getOwnedFile(fileId: string, ownerId: string) {
   return file && file.ownerId === ownerId && !file.deletedAt && !file.isDeleted ? file : null;
 }
 
+export async function deleteOwnedFile(fileId: string, ownerId: string) {
+  const file = await getOwnedFile(fileId, ownerId);
+  if (!file) {
+    return false;
+  }
+
+  if (supabaseAdmin && isSupabaseConfigured()) {
+    const { error: storageError } = await supabaseAdmin.storage
+      .from(DEFAULT_STORAGE_BUCKET)
+      .remove([file.storagePath]);
+
+    if (storageError) {
+      console.error('Supabase file storage deletion failed', { message: storageError.message });
+      throw new Error('Unable to remove the file from private Storage. The database record was kept.');
+    }
+
+    const { data, error: metadataError } = await supabaseAdmin
+      .from('files')
+      .delete()
+      .eq('id', fileId)
+      .eq('owner_id', ownerId)
+      .select('id')
+      .maybeSingle();
+
+    if (metadataError) {
+      console.error('Supabase file metadata deletion failed', {
+        code: metadataError.code,
+        message: metadataError.message,
+      });
+      throw new Error('The stored file was removed, but its database record could not be deleted. Please retry.');
+    }
+
+    if (!data) {
+      throw new Error('The stored file was removed, but its database record could not be found. Refresh and retry.');
+    }
+  } else {
+    uploadedFiles.delete(fileId);
+  }
+
+  deleteShareLinksForFile(fileId);
+  return true;
+}
+
 export async function getFileById(fileId: string) {
   if (supabaseAdmin && isSupabaseConfigured()) {
     const { data, error } = await supabaseAdmin
@@ -248,7 +292,19 @@ export async function storeUploadedFile(record: StoredFileRecord, buffer: Buffer
 
     if (metadataError || !data) {
       await storage.remove([record.storagePath]);
-      throw new Error('Unable to save file metadata in Supabase.');
+      if (metadataError) {
+        console.error('Supabase file metadata insert failed', {
+          code: metadataError.code,
+          message: metadataError.message,
+        });
+      } else {
+        console.error('Supabase file metadata insert returned no row.');
+      }
+      throw new Error(
+        metadataError?.code
+          ? `Unable to save file metadata in Supabase (database error ${metadataError.code}).`
+          : 'Unable to save file metadata in Supabase.'
+      );
     }
 
     return mapFileRow(data as FileDatabaseRow);

@@ -1,12 +1,17 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { ZipArchive } from 'archiver';
 import { env } from '../config/env.js';
+import { getFileById, getOwnedFile, readStoredFile } from '../services/fileService.js';
 import { getSessionUser } from '../services/authService.js';
 import {
   buildPublicShareUrl,
-  buildShareDownloadUrl,
+  buildShareTicketUrl,
+  consumeShareDownloadTicket,
+  createShareDownloadTicket,
   createShareRecord,
   createShareToken,
   evaluateShareAccess,
+  getShareFileIds,
   getShareRecordBySlug,
   getShareRecordByToken,
   hashPassword,
@@ -14,6 +19,8 @@ import {
   listShareLinksForOwner,
   normalizeCustomSlug,
   revokeShareLinkById,
+  MAX_SHARE_FILE_COUNT,
+  MAX_SHARE_TRANSFER_BYTES,
   validateShareLinkConfig,
   verifyPasswordHash,
 } from '../services/shareService.js';
@@ -43,7 +50,7 @@ export async function listShareLinksController(
         id: link.id,
         token: link.token,
         customSlug: link.customSlug ?? null,
-        shareUrl: buildPublicShareUrl('http://localhost:5173', link.customSlug ?? link.token),
+        shareUrl: buildPublicShareUrl(env.APP_URL, link.token, link.customSlug),
         status: link.isActive && !link.isRevoked ? 'active' : 'revoked',
         expiresAt: link.expiresAt ?? null,
         maxDownloads: link.maxDownloads ?? null,
@@ -115,21 +122,37 @@ export async function createShareLinkController(
     }
 
     const payload = result.data;
-    const fileId = payload.fileId?.trim() || null;
+    const fileIds = Array.from(new Set([
+      ...(payload.fileIds ?? []),
+      ...(payload.fileId ? [payload.fileId] : []),
+    ]));
+    if (fileIds.length === 0) throw new Error('Upload at least one file before creating a share link.');
+    if (fileIds.length > MAX_SHARE_FILE_COUNT) throw new Error(`A transfer can contain at most ${MAX_SHARE_FILE_COUNT} files.`);
+
+    const files = await Promise.all(fileIds.map((fileId) => getOwnedFile(fileId, user.id)));
+    if (files.some((file) => !file)) throw new Error('One or more uploaded files could not be found.');
+    const ownedFiles = files.filter((file) => file !== null);
+    const totalSizeBytes = ownedFiles.reduce((total, file) => total + file.sizeBytes, 0);
+    if (totalSizeBytes > MAX_SHARE_TRANSFER_BYTES) {
+      throw new Error('A shared transfer cannot exceed 1 GB.');
+    }
+
     const token = createShareToken();
-    const slug = normalizeCustomSlug(payload.customSlug ?? null) ?? token;
+    const defaultSlug = fileIds.length === 1 ? ownedFiles[0].originalName : 'secure-transfer';
+    const slug = normalizeCustomSlug(payload.customSlug ?? defaultSlug) ?? 'secure-transfer';
     const passwordHash = payload.password ? await hashPassword(payload.password) : null;
     const record = createShareRecord({
       ownerId: user.id,
       token,
       customSlug: slug,
-      fileId,
+      fileId: fileIds[0],
+      fileIds,
       passwordHash,
       expiresAt: payload.expiresAt ?? null,
       maxDownloads: payload.maxDownloads ?? null,
       ownerMessage: payload.message ?? null,
     });
-    const shareUrl = buildPublicShareUrl(env.APP_URL, slug);
+    const shareUrl = buildPublicShareUrl(env.APP_URL, token, slug);
 
     return reply.code(201).send({
       success: true,
@@ -137,6 +160,9 @@ export async function createShareLinkController(
         id: record.id,
         token,
         fileId: record.fileId ?? null,
+        fileIds,
+        fileCount: fileIds.length,
+        totalSizeBytes,
         shareUrl,
         customSlug: record.customSlug ?? null,
         expiresAt: record.expiresAt ?? null,
@@ -184,7 +210,7 @@ export async function publicShareStatusController(
     });
   }
 
-  const evaluation = evaluateShareAccess({
+  const evaluation = await evaluateShareAccess({
     expiresAt: share.expiresAt,
     isActive: share.isActive,
     isRevoked: share.isRevoked,
@@ -192,6 +218,12 @@ export async function publicShareStatusController(
     downloadCount: share.downloadCount,
     maxDownloads: share.maxDownloads,
   });
+
+  const fileIds = getShareFileIds(share);
+  const files = await Promise.all(fileIds.map((fileId) => getFileById(fileId)));
+  const availableFiles = files.filter((file) => file !== null);
+  const filesAvailable = availableFiles.length === fileIds.length;
+  const totalSizeBytes = availableFiles.reduce((total, file) => total + file.sizeBytes, 0);
 
   return reply.send({
     success: true,
@@ -202,8 +234,18 @@ export async function publicShareStatusController(
       downloadLimit: share.maxDownloads ?? 0,
       downloadCount: share.downloadCount,
       passwordRequired: evaluation.passwordRequired,
-      active: evaluation.allowed,
-      status: evaluation.allowed ? 'open' : (evaluation.reason ?? 'closed'),
+      active: evaluation.allowed && filesAvailable,
+      status: !filesAvailable ? 'FILE_UNAVAILABLE' : evaluation.allowed ? 'open' : (evaluation.reason ?? 'closed'),
+      fileName: availableFiles.length === 1 ? availableFiles[0].originalName : null,
+      sizeBytes: totalSizeBytes,
+      mimeType: availableFiles.length === 1 ? availableFiles[0].mimeType : 'application/zip',
+      fileCount: fileIds.length,
+      files: availableFiles.map((file) => ({
+        name: file.originalName,
+        sizeBytes: file.sizeBytes,
+        mimeType: file.mimeType,
+      })),
+      message: share.ownerMessage ?? null,
     },
   });
 }
@@ -237,7 +279,7 @@ export async function downloadShareController(
     });
   }
 
-  const evaluation = evaluateShareAccess({
+  const evaluation = await evaluateShareAccess({
     expiresAt: share.expiresAt,
     isActive: share.isActive,
     isRevoked: share.isRevoked,
@@ -262,16 +304,134 @@ export async function downloadShareController(
     });
   }
 
-  incrementShareDownload(share.token);
+  const fileIds = getShareFileIds(share);
+  const files = await Promise.all(fileIds.map((fileId) => getFileById(fileId)));
+  if (fileIds.length === 0 || files.some((file) => !file)) {
+    return reply.code(404).send({
+      success: false,
+      error: {
+        code: 'FILE_NOT_FOUND',
+        message: 'One or more files in this transfer are unavailable.',
+      },
+    });
+  }
 
+  incrementShareDownload(share.token);
+  const ticket = createShareDownloadTicket(share.token);
   return reply.send({
     success: true,
     data: {
       token: share.token,
       downloadAllowed: true,
-      downloadUrl: share.fileId ? buildShareDownloadUrl(env.APP_URL, share.fileId, share.token) : '/api/files/demo-file/download',
+      downloadUrl: buildShareTicketUrl(env.API_URL, share.token, ticket),
     },
   });
+}
+
+function getArchiveEntryName(name: string, usedNames: Set<string>) {
+  const safeName = name.replace(/[\\/\u0000-\u001f]/g, '_').trim();
+  const baseName = safeName && safeName !== '.' && safeName !== '..' ? safeName : 'file';
+  let candidate = baseName;
+  let suffix = 2;
+
+  while (usedNames.has(candidate.toLowerCase())) {
+    const extensionIndex = baseName.lastIndexOf('.');
+    const stem = extensionIndex > 0 ? baseName.slice(0, extensionIndex) : baseName;
+    const extension = extensionIndex > 0 ? baseName.slice(extensionIndex) : '';
+    candidate = `${stem} (${suffix++})${extension}`;
+  }
+
+  usedNames.add(candidate.toLowerCase());
+  return candidate;
+}
+
+export async function serveShareDownloadController(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const { token = '', ticket = '' } = request.params as { token?: string; ticket?: string };
+  if (!token || !ticket || !consumeShareDownloadTicket(ticket, token)) {
+    return reply.code(403).send({
+      success: false,
+      error: { code: 'INVALID_DOWNLOAD_TICKET', message: 'This download link is invalid or has expired.' },
+    });
+  }
+
+  const share = getShareRecordByToken(token);
+  if (!share || !share.isActive || share.isRevoked) {
+    return reply.code(403).send({
+      success: false,
+      error: { code: 'LINK_REVOKED', message: 'This sharing link is no longer available.' },
+    });
+  }
+  if (new Date(share.expiresAt ?? 0).getTime() <= Date.now() && share.expiresAt) {
+    return reply.code(410).send({
+      success: false,
+      error: { code: 'LINK_EXPIRED', message: 'This sharing link has expired.' },
+    });
+  }
+
+  const fileIds = getShareFileIds(share);
+  const files = await Promise.all(fileIds.map((fileId) => getFileById(fileId)));
+  if (files.length === 0 || files.some((file) => !file)) {
+    return reply.code(404).send({
+      success: false,
+      error: { code: 'FILE_NOT_FOUND', message: 'One or more files in this transfer are unavailable.' },
+    });
+  }
+
+  const availableFiles = files.filter((file) => file !== null);
+  if (availableFiles.length === 1) {
+    try {
+      const file = availableFiles[0];
+      const buffer = await readStoredFile(file);
+      return reply
+        .type(file.mimeType)
+        .header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.originalName)}`)
+        .send(buffer);
+    } catch (error) {
+      request.log.error({ err: error }, 'Unable to read a shared file for download');
+      return reply.code(500).send({
+        success: false,
+        error: { code: 'DOWNLOAD_FAILED', message: 'Unable to read the shared file.' },
+      });
+    }
+  }
+
+  const archive = new ZipArchive({ zlib: { level: 0 } });
+  let archiveFailure: Error | undefined;
+  archive.on('warning', (error) => request.log.warn({ err: error }, 'ZIP archive warning'));
+  archive.on('error', (error) => {
+    archiveFailure = error;
+    request.log.error({ err: error }, 'ZIP archive stream failed');
+  });
+  const usedNames = new Set<string>();
+
+  reply
+    .type('application/zip')
+    .header('Content-Disposition', 'attachment; filename="SecureDrop-transfer.zip"')
+    .send(archive);
+
+  try {
+    for (const file of availableFiles) {
+      if (archiveFailure) throw archiveFailure;
+      const buffer = await readStoredFile(file);
+      if (archiveFailure) throw archiveFailure;
+      const entryName = getArchiveEntryName(file.originalName, usedNames);
+      const entryComplete = new Promise<void>((resolve, reject) => {
+        archive.once('entry', () => resolve());
+        archive.once('error', reject);
+      });
+      archive.append(buffer, { name: entryName });
+      await entryComplete;
+    }
+    await archive.finalize();
+  } catch (error) {
+    request.log.error({ err: error }, 'Unable to build a shared ZIP archive');
+    archive.destroy(error instanceof Error ? error : new Error('Unable to build ZIP archive.'));
+  }
+
+  return reply;
 }
 
 export async function verifyPasswordController(

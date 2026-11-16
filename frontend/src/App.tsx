@@ -6,6 +6,7 @@ import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { UploadPage } from './pages/UploadPage';
 import { SharePage } from './pages/SharePage';
+import { BrandMark } from './components/BrandLogo';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const [isChecking, setIsChecking] = useState(true);
@@ -23,8 +24,15 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 
   if (isChecking) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-sm text-slate-400">
-        Validating session...
+      <div className="transfer-shell relative flex min-h-screen items-center justify-center overflow-hidden px-5 text-slate-900">
+        <div aria-hidden="true" className="transfer-orb transfer-orb-one" />
+        <div aria-hidden="true" className="transfer-orb transfer-orb-two" />
+        <div className="transfer-card-3d motion-enter relative z-10 rounded-2xl border border-white/60 bg-white/95 px-7 py-6 text-center shadow-xl">
+          <div className="mx-auto grid h-11 w-11 place-items-center rounded-xl bg-slate-950">
+            <BrandMark />
+          </div>
+          <p className="mt-4 text-sm font-semibold text-slate-700">Checking your SecureDrop session…</p>
+        </div>
       </div>
     );
   }
@@ -60,6 +68,7 @@ export default function App() {
           }
         />
         <Route path="/s/:token" element={<SharePage />} />
+        <Route path="/SecureDrop/:resource" element={<SharePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
