@@ -1,7 +1,9 @@
 const env = {
   VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL ?? '',
   VITE_SUPABASE_PUBLISHABLE_KEY: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? '',
-  VITE_API_URL: import.meta.env.VITE_API_URL ?? 'http://localhost:3001',
+  VITE_API_URL: (
+    import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+  ).replace(/\/+$/, ''),
 };
 
 export const appEnv = {
