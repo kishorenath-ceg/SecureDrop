@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+sitemap:
+https://securedrop.kishorenath.me/sitemap.xml
