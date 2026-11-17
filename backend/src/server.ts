@@ -13,8 +13,8 @@ dotenv.config({ path: '../.env' });
 
 const allowedOrigins = [
   process.env.APP_URL,
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
+  "https://securedrop.kishorenath.me",
+  "http://localhost:5173"
 ].filter(Boolean) as string[];
 
 function isLocalDevelopmentOrigin(origin?: string) {
