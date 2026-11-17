@@ -83,6 +83,12 @@ export function isAllowedMimeType(mimeType: string) {
   return false;
 }
 
+function normalizeMimeType(mimeType: string) {
+  return mimeType.trim().toLowerCase() === 'application/x-zip-compressed'
+    ? 'application/zip'
+    : mimeType;
+}
+
 export type StoredFileRecord = {
   id: string;
   ownerId: string;
@@ -134,8 +140,9 @@ export async function createUploadRecord(input: {
   storagePath?: string;
 }) {
   const payload = uploadFileSchema.parse(input);
+  const mimeType = normalizeMimeType(payload.mimeType);
 
-  if (!isAllowedMimeType(payload.mimeType)) {
+  if (!isAllowedMimeType(mimeType)) {
     throw new Error('This file type is not currently supported.');
   }
 
@@ -146,7 +153,7 @@ export async function createUploadRecord(input: {
     ownerId: input.userId,
     originalName: payload.originalName,
     storagePath,
-    mimeType: payload.mimeType,
+    mimeType,
     sizeBytes: payload.sizeBytes,
     createdAt: new Date().toISOString(),
     status: 'uploaded',

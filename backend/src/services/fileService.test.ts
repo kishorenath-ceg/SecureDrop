@@ -7,7 +7,7 @@ vi.mock('./supabaseService.js', () => ({
   isSupabaseConfigured: () => false,
 }));
 
-import { deleteOwnedFile, type StoredFileRecord, uploadedFiles, uploadFileSchema } from './fileService.js';
+import { createUploadRecord, deleteOwnedFile, type StoredFileRecord, uploadedFiles, uploadFileSchema } from './fileService.js';
 import { createShareRecord, getShareRecordBySlug, getShareRecordByToken } from './shareService.js';
 
 afterEach(() => {
@@ -33,6 +33,17 @@ describe('upload file schema', () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it('normalizes Windows ZIP MIME types for storage', async () => {
+    const record = await createUploadRecord({
+      originalName: 'archive.zip',
+      mimeType: 'application/x-zip-compressed',
+      sizeBytes: 1024,
+      userId: 'owner-1',
+    });
+
+    expect(record.mimeType).toBe('application/zip');
   });
 
   it('only deletes a file when the authenticated owner matches', async () => {
