@@ -12,6 +12,7 @@ import {
   createShareToken,
   evaluateShareAccess,
   getShareFileIds,
+  getShareRecordByIdentifier,
   getShareRecordBySlug,
   getShareRecordByToken,
   hashPassword,
@@ -50,7 +51,7 @@ export async function listShareLinksController(
         id: link.id,
         token: link.token,
         customSlug: link.customSlug ?? null,
-        shareUrl: buildPublicShareUrl(env.APP_URL, link.token, link.customSlug),
+        shareUrl: buildPublicShareUrl(env.APP_URL, link.customSlug),
         status: link.isActive && !link.isRevoked ? 'active' : 'revoked',
         expiresAt: link.expiresAt ?? null,
         maxDownloads: link.maxDownloads ?? null,
@@ -141,6 +142,16 @@ export async function createShareLinkController(
     const defaultSlug = fileIds.length === 1 ? ownedFiles[0].originalName : 'secure-transfer';
     const slug = normalizeCustomSlug(payload.customSlug ?? defaultSlug) ?? 'secure-transfer';
     const passwordHash = payload.password ? await hashPassword(payload.password) : null;
+    if (getShareRecordBySlug(slug)) {
+      return reply.code(409).send({
+        success: false,
+        error: {
+          code: 'SHARE_SLUG_TAKEN',
+          message: 'That link name is already in use. Choose a different name.',
+        },
+      });
+    }
+
     const record = createShareRecord({
       ownerId: user.id,
       token,
@@ -152,7 +163,7 @@ export async function createShareLinkController(
       maxDownloads: payload.maxDownloads ?? null,
       ownerMessage: payload.message ?? null,
     });
-    const shareUrl = buildPublicShareUrl(env.APP_URL, token, slug);
+    const shareUrl = buildPublicShareUrl(env.APP_URL, slug);
 
     return reply.code(201).send({
       success: true,
@@ -198,7 +209,7 @@ export async function publicShareStatusController(
     });
   }
 
-  const share = getShareRecordByToken(token) ?? getShareRecordBySlug(token);
+  const share = getShareRecordByIdentifier(token);
 
   if (!share) {
     return reply.code(404).send({
@@ -267,7 +278,7 @@ export async function downloadShareController(
     });
   }
 
-  const share = getShareRecordByToken(token) ?? getShareRecordBySlug(token);
+  const share = getShareRecordByIdentifier(token);
 
   if (!share) {
     return reply.code(404).send({
@@ -451,7 +462,7 @@ export async function verifyPasswordController(
     });
   }
 
-  const share = getShareRecordByToken(token) ?? getShareRecordBySlug(token);
+  const share = getShareRecordByIdentifier(token);
 
   if (!share) {
     return reply.code(404).send({

@@ -292,6 +292,13 @@ export function getShareRecordBySlug(slug: string) {
   return token ? shareLinkStore.get(token) ?? null : null;
 }
 
+export function getShareRecordByIdentifier(identifier: string) {
+  const legacyToken = identifier.match(/-([A-Za-z0-9]{24})$/)?.[1];
+  return getShareRecordByToken(identifier)
+    ?? getShareRecordBySlug(identifier)
+    ?? (legacyToken ? getShareRecordByToken(legacyToken) : null);
+}
+
 export function listShareLinksForOwner(ownerId: string) {
   return Array.from(shareLinkStore.values())
     .filter((item) => item.ownerId === ownerId)
@@ -334,9 +341,9 @@ export function incrementShareDownload(token: string) {
   return record;
 }
 
-export function buildPublicShareUrl(baseUrl: string, token: string, filenameSlug?: string | null) {
-  const filename = normalizeCustomSlug(filenameSlug) ?? 'file';
-  return `${baseUrl.replace(/\/$/, '')}/SecureDrop/${filename}-${token}`;
+export function buildPublicShareUrl(baseUrl: string, slug?: string | null) {
+  const linkName = normalizeCustomSlug(slug) ?? 'file';
+  return `${baseUrl.replace(/\/+$/, '')}/SecureDrop/${linkName}`;
 }
 
 export function buildShareDownloadUrl(baseUrl: string, fileId: string, token: string) {

@@ -12,7 +12,7 @@ function formatBytes(bytes: number) {
 
 export function SharePage() {
   const { token: routeToken, resource } = useParams();
-  const token = routeToken ?? resource?.match(/-([A-Za-z0-9]{24})$/)?.[1];
+  const token = routeToken ?? resource;
   const [password, setPassword] = useState('');
   const [shareInfo, setShareInfo] = useState<Awaited<ReturnType<typeof getPublicShare>>['data'] | null>(null);
   const [status, setStatus] = useState<string | null>(null);

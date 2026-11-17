@@ -56,7 +56,7 @@ describe('UploadPage multi-file transfer', () => {
         fileIds: ['file-1', 'file-2'],
         fileCount: 2,
         totalSizeBytes: firstFile.size + secondFile.size,
-        shareUrl: 'https://securedrop.example/share/token-1',
+        shareUrl: 'https://securedrop.example/SecureDrop/team-transfer',
         customSlug: null,
         expiresAt: null,
         maxDownloads: 10,
@@ -83,7 +83,7 @@ describe('UploadPage multi-file transfer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create one secure link' }));
 
     await waitFor(() => {
-      expect(screen.getByText('https://securedrop.example/share/token-1')).toBeTruthy();
+      expect(screen.getByText('https://securedrop.example/SecureDrop/team-transfer')).toBeTruthy();
     });
     expect(createShareLink).toHaveBeenCalledTimes(1);
     expect(createShareLink).toHaveBeenCalledWith(

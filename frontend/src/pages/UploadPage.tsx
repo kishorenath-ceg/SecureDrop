@@ -324,10 +324,13 @@ export function UploadPage() {
                 </div>
 
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className="text-xs font-semibold text-slate-700">
-                    Link name
-                    <input value={customSlug} onChange={(event) => setCustomSlug(event.target.value)} disabled={shareOptionsDisabled} placeholder="Optional" className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-100 disabled:text-slate-500" />
-                  </label>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700">
+                      Link name
+                      <input value={customSlug} onChange={(event) => setCustomSlug(event.target.value)} disabled={shareOptionsDisabled} placeholder="e.g. team-transfer" className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-100 disabled:text-slate-500" />
+                    </label>
+                    <p className="mt-1 text-xs font-normal text-slate-500">Used in your link: /SecureDrop/link-name</p>
+                  </div>
                   <label className="text-xs font-semibold text-slate-700">
                     Password
                     <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} disabled={shareOptionsDisabled} placeholder="8+ characters" className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-100 disabled:text-slate-500" />
