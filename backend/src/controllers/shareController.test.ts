@@ -157,6 +157,16 @@ describe('shared ZIP downloads', () => {
       passwordHash: await hashPassword('BundlePass123!'),
     });
 
+    const publicStatus = await app.inject({
+      method: 'GET',
+      url: `/api/share/${share.token}`,
+    });
+    expect(JSON.parse(publicStatus.body).data).toMatchObject({
+      active: true,
+      passwordRequired: true,
+      status: 'PASSWORD_REQUIRED',
+    });
+
     const denied = await app.inject({
       method: 'POST',
       url: `/api/share/${share.token}/download`,

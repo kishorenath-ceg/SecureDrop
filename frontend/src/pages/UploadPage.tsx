@@ -190,8 +190,16 @@ export function UploadPage() {
     }
   };
 
-  const handleRemovePendingFile = (fileId: string) => {
-    setFiles((currentFiles) => currentFiles.filter((item) => item.id !== fileId || item.state === 'uploaded'));
+  const handleRemoveFile = (fileId: string) => {
+    const removedFile = files.find((item) => item.id === fileId);
+    setFiles((currentFiles) => currentFiles.filter((item) => item.id !== fileId));
+    if (removedFile) {
+      setStatus(
+        removedFile.state === 'uploaded'
+          ? `Removed ${removedFile.file.name} from this transfer. The uploaded file remains in your file library.`
+          : `Removed ${removedFile.file.name} from this transfer.`
+      );
+    }
   };
 
   const clearPendingFiles = () => {
@@ -444,12 +452,12 @@ export function UploadPage() {
                       }`}>
                         {item.state === 'uploaded' ? 'Ready' : item.state === 'failed' ? 'Failed' : item.state === 'uploading' ? `${item.progress}%` : 'Queued'}
                       </span>
-                      {item.state !== 'uploaded' && !shareUrl && (
+                      {!shareUrl && (
                         <button
                           type="button"
-                          onClick={() => handleRemovePendingFile(item.id)}
+                          onClick={() => handleRemoveFile(item.id)}
                           disabled={isUploading || isCreatingLinks}
-                          aria-label={`Remove ${item.file.name}`}
+                          aria-label={`Remove ${item.file.name} from transfer`}
                           className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
                         >
                           ×

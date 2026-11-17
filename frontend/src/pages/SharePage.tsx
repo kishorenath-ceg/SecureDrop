@@ -95,7 +95,7 @@ export function SharePage() {
           <div className="flex justify-between gap-4"><span>Available until</span><span className="text-right font-semibold">{shareInfo?.expiresAt ? new Date(shareInfo.expiresAt).toLocaleString() : 'No expiration'}</span></div>
           <div className="flex justify-between gap-4"><span>Downloads</span><span className="font-semibold">{shareInfo?.downloadCount ?? 0} / {shareInfo?.downloadLimit == null ? '∞' : shareInfo.downloadLimit}</span></div>
           <div className="flex justify-between gap-4"><span>Password protection</span><span className="font-semibold">{shareInfo?.passwordRequired ? 'Enabled' : 'Disabled'}</span></div>
-          <div className="flex justify-between gap-4"><span>Status</span><span className="font-semibold">{shareInfo?.status ?? 'Loading…'}</span></div>
+          <div className="flex justify-between gap-4"><span>Status</span><span className="font-semibold">{shareInfo?.status === 'PASSWORD_REQUIRED' ? 'Password required' : shareInfo?.status ?? 'Loading…'}</span></div>
           {shareInfo?.files && shareInfo.files.length > 1 && (
             <div className="border-t border-indigo-100 pt-3">
               <p className="mb-2 font-semibold">Included files</p>

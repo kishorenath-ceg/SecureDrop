@@ -225,16 +225,22 @@ export async function publicShareStatusController(
     expiresAt: share.expiresAt,
     isActive: share.isActive,
     isRevoked: share.isRevoked,
-    passwordHash: share.passwordHash,
+    passwordHash: null,
     downloadCount: share.downloadCount,
     maxDownloads: share.maxDownloads,
   });
 
+  const passwordRequired = Boolean(share.passwordHash);
   const fileIds = getShareFileIds(share);
   const files = await Promise.all(fileIds.map((fileId) => getFileById(fileId)));
   const availableFiles = files.filter((file) => file !== null);
   const filesAvailable = availableFiles.length === fileIds.length;
   const totalSizeBytes = availableFiles.reduce((total, file) => total + file.sizeBytes, 0);
+  const status = !filesAvailable
+    ? 'FILE_UNAVAILABLE'
+    : evaluation.allowed
+      ? passwordRequired ? 'PASSWORD_REQUIRED' : 'open'
+      : evaluation.reason ?? 'closed';
 
   return reply.send({
     success: true,
@@ -244,9 +250,9 @@ export async function publicShareStatusController(
       expired: evaluation.expired,
       downloadLimit: share.maxDownloads ?? 0,
       downloadCount: share.downloadCount,
-      passwordRequired: evaluation.passwordRequired,
+      passwordRequired,
       active: evaluation.allowed && filesAvailable,
-      status: !filesAvailable ? 'FILE_UNAVAILABLE' : evaluation.allowed ? 'open' : (evaluation.reason ?? 'closed'),
+      status,
       fileName: availableFiles.length === 1 ? availableFiles[0].originalName : null,
       sizeBytes: totalSizeBytes,
       mimeType: availableFiles.length === 1 ? availableFiles[0].mimeType : 'application/zip',

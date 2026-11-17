@@ -15,6 +15,42 @@ afterEach(() => {
 });
 
 describe('UploadPage multi-file transfer', () => {
+  it('lets the user remove an uploaded file from the current transfer', async () => {
+    const file = new File(['content'], 'remove-me.txt', { type: 'text/plain' });
+    vi.mocked(uploadFile).mockResolvedValueOnce({
+      success: true,
+      data: {
+        id: 'file-remove-me',
+        originalName: file.name,
+        storagePath: 'file-remove-me',
+        mimeType: 'text/plain',
+        sizeBytes: file.size,
+        createdAt: '2025-01-01T00:00:00.000Z',
+        status: 'ready',
+        uploadUrl: '',
+      },
+    });
+
+    render(<UploadPage />);
+    fireEvent.change(screen.getByLabelText('Choose multiple files'), {
+      target: { files: [file] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload 1 file' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Ready')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove remove-me.txt from transfer' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('remove-me.txt')).toBeNull();
+      expect(screen.getByRole('status').textContent).toContain(
+        'The uploaded file remains in your file library.'
+      );
+    });
+  });
+
   it('uploads every selected file and creates one link and QR for the whole transfer', async () => {
     const firstFile = new File(['first'], 'first.txt', { type: 'text/plain' });
     const secondFile = new File(['second'], 'second.txt', { type: 'text/plain' });
