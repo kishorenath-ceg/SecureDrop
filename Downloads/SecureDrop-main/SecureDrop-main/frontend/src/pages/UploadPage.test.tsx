@@ -15,6 +15,42 @@ afterEach(() => {
 });
 
 describe('UploadPage multi-file transfer', () => {
+  it('lets the user remove an uploaded file from the current transfer', async () => {
+    const file = new File(['content'], 'remove-me.txt', { type: 'text/plain' });
+    vi.mocked(uploadFile).mockResolvedValueOnce({
+      success: true,
+      data: {
+        id: 'file-remove-me',
+        originalName: file.name,
+        storagePath: 'file-remove-me',
+        mimeType: 'text/plain',
+        sizeBytes: file.size,
+        createdAt: '2025-01-01T00:00:00.000Z',
+        status: 'ready',
+        uploadUrl: '',
+      },
+    });
+
+    render(<UploadPage />);
+    fireEvent.change(screen.getByLabelText('Choose multiple files'), {
+      target: { files: [file] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload 1 file' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Ready')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove remove-me.txt from transfer' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('remove-me.txt')).toBeNull();
+      expect(screen.getByRole('status').textContent).toContain(
+        'The uploaded file remains in your file library.'
+      );
+    });
+  });
+
   it('uploads every selected file and creates one link and QR for the whole transfer', async () => {
     const firstFile = new File(['first'], 'first.txt', { type: 'text/plain' });
     const secondFile = new File(['second'], 'second.txt', { type: 'text/plain' });
@@ -56,7 +92,7 @@ describe('UploadPage multi-file transfer', () => {
         fileIds: ['file-1', 'file-2'],
         fileCount: 2,
         totalSizeBytes: firstFile.size + secondFile.size,
-        shareUrl: 'https://securedrop.example/share/token-1',
+        shareUrl: 'https://securedrop.example/SecureDrop/team-transfer',
         customSlug: null,
         expiresAt: null,
         maxDownloads: 10,
@@ -83,7 +119,7 @@ describe('UploadPage multi-file transfer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create one secure link' }));
 
     await waitFor(() => {
-      expect(screen.getByText('https://securedrop.example/share/token-1')).toBeTruthy();
+      expect(screen.getByText('https://securedrop.example/SecureDrop/team-transfer')).toBeTruthy();
     });
     expect(createShareLink).toHaveBeenCalledTimes(1);
     expect(createShareLink).toHaveBeenCalledWith(

@@ -62,7 +62,7 @@ export async function dashboardFilesController(
     const isBundleLead = !bundleCount || linkedFileIds[0] === file.id;
     const isActiveShare = Boolean(shareLink && shareLink.isActive && !shareLink.isRevoked);
     const shareUrl = shareLink && isBundleLead
-      ? buildPublicShareUrl(env.APP_URL, shareLink.token, shareLink.customSlug)
+      ? buildPublicShareUrl(env.APP_URL, shareLink.customSlug)
       : null;
 
     return {

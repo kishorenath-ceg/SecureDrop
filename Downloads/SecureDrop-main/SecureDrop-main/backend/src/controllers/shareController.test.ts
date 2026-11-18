@@ -81,11 +81,29 @@ describe('shared ZIP downloads', () => {
     });
 
     expect(response.statusCode).toBe(201);
-    expect(JSON.parse(response.body).data).toMatchObject({
+    const body = JSON.parse(response.body);
+    expect(body.data).toMatchObject({
       fileIds,
       fileCount: 2,
-      shareUrl: expect.stringContaining('/SecureDrop/one-team-transfer-'),
+      shareUrl: expect.stringMatching(/\/SecureDrop\/one-team-transfer$/),
     });
+
+    const publicStatus = await app.inject({
+      method: 'GET',
+      url: '/api/share/one-team-transfer',
+    });
+    expect(publicStatus.statusCode).toBe(200);
+    expect(JSON.parse(publicStatus.body).data.token).toBe(body.data.token);
+  });
+
+  it('rejects duplicate public link names rather than replacing an existing share', async () => {
+    const payload = { fileIds, customSlug: 'one-team-transfer' };
+    const first = await app.inject({ method: 'POST', url: '/test/share-links', payload });
+    const duplicate = await app.inject({ method: 'POST', url: '/test/share-links', payload });
+
+    expect(first.statusCode).toBe(201);
+    expect(duplicate.statusCode).toBe(409);
+    expect(JSON.parse(duplicate.body).error.code).toBe('SHARE_SLUG_TAKEN');
   });
 
   it('creates one authorized ZIP download for all files and consumes its ticket once', async () => {
@@ -137,6 +155,16 @@ describe('shared ZIP downloads', () => {
       ownerId: 'bundle-owner',
       fileIds,
       passwordHash: await hashPassword('BundlePass123!'),
+    });
+
+    const publicStatus = await app.inject({
+      method: 'GET',
+      url: `/api/share/${share.token}`,
+    });
+    expect(JSON.parse(publicStatus.body).data).toMatchObject({
+      active: true,
+      passwordRequired: true,
+      status: 'PASSWORD_REQUIRED',
     });
 
     const denied = await app.inject({

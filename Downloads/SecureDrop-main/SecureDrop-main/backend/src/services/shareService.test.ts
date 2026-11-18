@@ -11,6 +11,7 @@ import {
   deleteShareLinksForFile,
   evaluateShareAccess,
   getShareRecordBySlug,
+  getShareRecordByIdentifier,
   getShareRecordByToken,
   getShareFileIds,
   hashPassword,
@@ -107,6 +108,10 @@ describe('share service', () => {
 
     expect(getShareRecordByToken(record.token)).toMatchObject({ token: record.token });
     expect(getShareRecordBySlug('quarterly-report')).toMatchObject({ token: record.token });
+    expect(getShareRecordByIdentifier('quarterly-report')).toMatchObject({ token: record.token });
+    expect(getShareRecordByIdentifier(`quarterly-report-${record.token}`)).toMatchObject({
+      token: record.token,
+    });
 
     incrementShareDownload(record.token);
     expect(getShareRecordByToken(record.token)?.downloadCount).toBe(1);
@@ -156,9 +161,9 @@ describe('share service', () => {
     );
   });
 
-  it('builds share URLs from the configured application base URL', () => {
-    expect(buildPublicShareUrl('https://app.example.com', 'secure-token', 'quarterly-report')).toBe(
-      'https://app.example.com/SecureDrop/quarterly-report-secure-token'
+  it('builds a short share URL from the configured application base URL and slug', () => {
+    expect(buildPublicShareUrl('https://app.example.com/', 'quarterly-report')).toBe(
+      'https://app.example.com/SecureDrop/quarterly-report'
     );
   });
 });

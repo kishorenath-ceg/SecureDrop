@@ -190,8 +190,16 @@ export function UploadPage() {
     }
   };
 
-  const handleRemovePendingFile = (fileId: string) => {
-    setFiles((currentFiles) => currentFiles.filter((item) => item.id !== fileId || item.state === 'uploaded'));
+  const handleRemoveFile = (fileId: string) => {
+    const removedFile = files.find((item) => item.id === fileId);
+    setFiles((currentFiles) => currentFiles.filter((item) => item.id !== fileId));
+    if (removedFile) {
+      setStatus(
+        removedFile.state === 'uploaded'
+          ? `Removed ${removedFile.file.name} from this transfer. The uploaded file remains in your file library.`
+          : `Removed ${removedFile.file.name} from this transfer.`
+      );
+    }
   };
 
   const clearPendingFiles = () => {
@@ -324,10 +332,13 @@ export function UploadPage() {
                 </div>
 
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className="text-xs font-semibold text-slate-700">
-                    Link name
-                    <input value={customSlug} onChange={(event) => setCustomSlug(event.target.value)} disabled={shareOptionsDisabled} placeholder="Optional" className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-100 disabled:text-slate-500" />
-                  </label>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700">
+                      Link name
+                      <input value={customSlug} onChange={(event) => setCustomSlug(event.target.value)} disabled={shareOptionsDisabled} placeholder="e.g. team-transfer" className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-100 disabled:text-slate-500" />
+                    </label>
+                    <p className="mt-1 text-xs font-normal text-slate-500">Used in your link: /SecureDrop/link-name</p>
+                  </div>
                   <label className="text-xs font-semibold text-slate-700">
                     Password
                     <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} disabled={shareOptionsDisabled} placeholder="8+ characters" className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-100 disabled:text-slate-500" />
@@ -441,12 +452,12 @@ export function UploadPage() {
                       }`}>
                         {item.state === 'uploaded' ? 'Ready' : item.state === 'failed' ? 'Failed' : item.state === 'uploading' ? `${item.progress}%` : 'Queued'}
                       </span>
-                      {item.state !== 'uploaded' && !shareUrl && (
+                      {!shareUrl && (
                         <button
                           type="button"
-                          onClick={() => handleRemovePendingFile(item.id)}
+                          onClick={() => handleRemoveFile(item.id)}
                           disabled={isUploading || isCreatingLinks}
-                          aria-label={`Remove ${item.file.name}`}
+                          aria-label={`Remove ${item.file.name} from transfer`}
                           className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
                         >
                           ×
