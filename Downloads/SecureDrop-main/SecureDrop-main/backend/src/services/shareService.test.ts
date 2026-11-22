@@ -98,7 +98,7 @@ describe('share service', () => {
   });
 
   it('stores and resolves share records by token and slug', async () => {
-    const record = createShareRecord({
+    const record = await createShareRecord({
       ownerId: 'user-123',
       customSlug: 'quarterly-report',
       expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
@@ -106,40 +106,40 @@ describe('share service', () => {
       passwordHash: await hashPassword('SecurePass123!'),
     });
 
-    expect(getShareRecordByToken(record.token)).toMatchObject({ token: record.token });
-    expect(getShareRecordBySlug('quarterly-report')).toMatchObject({ token: record.token });
-    expect(getShareRecordByIdentifier('quarterly-report')).toMatchObject({ token: record.token });
-    expect(getShareRecordByIdentifier(`quarterly-report-${record.token}`)).toMatchObject({
+    await expect(getShareRecordByToken(record.token)).resolves.toMatchObject({ token: record.token });
+    await expect(getShareRecordBySlug('quarterly-report')).resolves.toMatchObject({ token: record.token });
+    await expect(getShareRecordByIdentifier('quarterly-report')).resolves.toMatchObject({ token: record.token });
+    await expect(getShareRecordByIdentifier(`quarterly-report-${record.token}`)).resolves.toMatchObject({
       token: record.token,
     });
 
-    incrementShareDownload(record.token);
-    expect(getShareRecordByToken(record.token)?.downloadCount).toBe(1);
+    await incrementShareDownload(record.token);
+    await expect(getShareRecordByToken(record.token)).resolves.toMatchObject({ downloadCount: 1 });
   });
 
-  it('removes a deleted file share and its slug index', () => {
-    const record = createShareRecord({
+  it('removes a deleted file share and its slug index', async () => {
+    const record = await createShareRecord({
       ownerId: 'user-delete-test',
       fileId: 'file-delete-test',
       customSlug: 'delete-test-share',
     });
 
-    deleteShareLinksForFile('file-delete-test');
+    await deleteShareLinksForFile('file-delete-test');
 
-    expect(getShareRecordByToken(record.token)).toBeNull();
-    expect(getShareRecordBySlug('delete-test-share')).toBeNull();
+    await expect(getShareRecordByToken(record.token)).resolves.toBeNull();
+    await expect(getShareRecordBySlug('delete-test-share')).resolves.toBeNull();
   });
 
-  it('associates one share record with every file in a ZIP transfer', () => {
-    const record = createShareRecord({
+  it('associates one share record with every file in a ZIP transfer', async () => {
+    const record = await createShareRecord({
       ownerId: 'user-bundle-test',
       fileIds: ['file-bundle-a', 'file-bundle-b'],
       customSlug: 'bundle-test-share',
     });
 
     expect(getShareFileIds(record)).toEqual(['file-bundle-a', 'file-bundle-b']);
-    deleteShareLinksForFile('file-bundle-b');
-    expect(getShareRecordByToken(record.token)).toBeNull();
+    await deleteShareLinksForFile('file-bundle-b');
+    await expect(getShareRecordByToken(record.token)).resolves.toBeNull();
   });
 
   it('allows a download ticket only once and only for its share token', () => {

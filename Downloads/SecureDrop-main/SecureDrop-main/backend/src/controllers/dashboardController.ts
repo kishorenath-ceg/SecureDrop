@@ -21,7 +21,7 @@ export async function dashboardStatsController(
   }
 
   const files = await listFilesForOwner(user.id);
-  const shareLinks = listShareLinksForOwner(user.id);
+  const shareLinks = await listShareLinksForOwner(user.id);
   const stats = summarizeDashboard({ files, shareLinks });
 
   return reply.send({
@@ -53,7 +53,7 @@ export async function dashboardFilesController(
   }
 
   const files = await listFilesForOwner(user.id);
-  const shareLinks = listShareLinksForOwner(user.id);
+  const shareLinks = await listShareLinksForOwner(user.id);
 
   const data = files.map((file) => {
     const shareLink = shareLinks.find((link) => getShareFileIds(link).includes(file.id));
