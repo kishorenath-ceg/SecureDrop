@@ -120,7 +120,7 @@ export async function downloadFileController(
     if (user) {
       file = await getOwnedFile(fileId, user.id);
     } else if (query.token) {
-      const share = getShareRecordByToken(query.token) ?? getShareRecordBySlug(query.token);
+      const share = await getShareRecordByToken(query.token) ?? await getShareRecordBySlug(query.token);
       const sharedFileIds = share ? getShareFileIds(share) : [];
       if (!share || sharedFileIds.length !== 1 || sharedFileIds[0] !== fileId) {
         return reply.code(403).send({

@@ -75,7 +75,7 @@ describe('upload file schema', () => {
       status: 'uploaded',
     };
     uploadedFiles.set(file.id, file);
-    const share = createShareRecord({
+    const share = await createShareRecord({
       ownerId: file.ownerId,
       fileId: file.id,
       customSlug: 'delete-file-test',
@@ -84,7 +84,7 @@ describe('upload file schema', () => {
     await expect(deleteOwnedFile(file.id, file.ownerId)).resolves.toBe(true);
 
     expect(uploadedFiles.has(file.id)).toBe(false);
-    expect(getShareRecordByToken(share.token)).toBeNull();
-    expect(getShareRecordBySlug('delete-file-test')).toBeNull();
+    await expect(getShareRecordByToken(share.token)).resolves.toBeNull();
+    await expect(getShareRecordBySlug('delete-file-test')).resolves.toBeNull();
   });
 });

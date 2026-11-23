@@ -1,5 +1,7 @@
 import { pbkdf2, randomBytes, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
+import { supabaseAdmin } from '../config/supabase.js';
+import { isSupabaseConfigured } from './supabaseService.js';
 
 const PBKDF2_ITERATIONS = 60_000;
 const DOWNLOAD_TICKET_TTL_MS = 5 * 60 * 1000;
@@ -207,9 +209,51 @@ export type ShareLinkRecord = {
   updatedAt: string;
 };
 
+type ShareLinkDatabaseRow = {
+  id: string;
+  owner_id: string;
+  token: string;
+  custom_slug: string | null;
+  file_id: string | null;
+  file_ids: string[] | null;
+  password_hash: string | null;
+  expires_at: string | null;
+  max_downloads: number | null;
+  download_count: number;
+  is_active: boolean;
+  is_revoked: boolean;
+  owner_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export const shareLinkStore = new Map<string, ShareLinkRecord>();
 export const shareSlugIndex = new Map<string, string>();
 const shareDownloadTickets = new Map<string, { token: string; expiresAt: number }>();
+
+function mapShareLinkRow(row: ShareLinkDatabaseRow): ShareLinkRecord {
+  return {
+    id: row.id,
+    ownerId: row.owner_id,
+    token: row.token,
+    customSlug: row.custom_slug,
+    fileId: row.file_id,
+    fileIds: Array.from(new Set(row.file_ids?.length ? row.file_ids : row.file_id ? [row.file_id] : [])),
+    passwordHash: row.password_hash,
+    expiresAt: row.expires_at,
+    maxDownloads: row.max_downloads,
+    downloadCount: row.download_count,
+    isActive: row.is_active,
+    isRevoked: row.is_revoked,
+    ownerMessage: row.owner_message,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function isPersistentStoreEnabled() {
+  return Boolean(supabaseAdmin && isSupabaseConfigured());
+}
 
 export function getShareFileIds(share: Pick<ShareLinkRecord, 'fileId' | 'fileIds'>) {
   return share.fileIds.length > 0 ? share.fileIds : share.fileId ? [share.fileId] : [];
@@ -241,7 +285,7 @@ export function consumeShareDownloadTicket(ticket: string, token: string) {
   return true;
 }
 
-export function createShareRecord(input: {
+export async function createShareRecord(input: {
   ownerId: string;
   token?: string;
   customSlug?: string | null;
@@ -253,17 +297,51 @@ export function createShareRecord(input: {
   isActive?: boolean;
   isRevoked?: boolean;
   ownerMessage?: string | null;
-}) {
+}): Promise<ShareLinkRecord> {
   const token = input.token ?? createShareToken();
   const customSlug = normalizeCustomSlug(input.customSlug ?? null) ?? null;
   const createdAt = new Date().toISOString();
+  const fileIds = Array.from(new Set(input.fileIds ?? (input.fileId ? [input.fileId] : [])));
+
+  if (isPersistentStoreEnabled()) {
+    const { data, error } = await supabaseAdmin!
+      .from('share_links')
+      .insert({
+        owner_id: input.ownerId,
+        token,
+        custom_slug: customSlug,
+        file_id: input.fileId ?? fileIds[0] ?? null,
+        file_ids: fileIds,
+        password_hash: input.passwordHash ?? null,
+        expires_at: input.expiresAt ?? null,
+        max_downloads: input.maxDownloads ?? null,
+        download_count: 0,
+        is_active: input.isActive ?? true,
+        is_revoked: input.isRevoked ?? false,
+        password_protected: Boolean(input.passwordHash),
+        owner_message: input.ownerMessage ?? null,
+        created_at: createdAt,
+        updated_at: createdAt,
+      })
+      .select('*')
+      .single();
+
+    if (error || !data) {
+      throw new Error(error?.code === '23505'
+        ? 'This custom link name or share token is already in use.'
+        : 'Unable to save the share link in Supabase.');
+    }
+
+    return mapShareLinkRow(data as ShareLinkDatabaseRow);
+  }
+
   const record: ShareLinkRecord = {
     id: `share-${Math.random().toString(36).slice(2, 10)}`,
     ownerId: input.ownerId,
     token,
     customSlug,
     fileId: input.fileId ?? null,
-    fileIds: Array.from(new Set(input.fileIds ?? (input.fileId ? [input.fileId] : []))),
+    fileIds,
     passwordHash: input.passwordHash ?? null,
     expiresAt: input.expiresAt ?? null,
     maxDownloads: input.maxDownloads ?? null,
@@ -283,29 +361,80 @@ export function createShareRecord(input: {
   return record;
 }
 
-export function getShareRecordByToken(token: string) {
+export async function getShareRecordByToken(token: string): Promise<ShareLinkRecord | null> {
+  if (isPersistentStoreEnabled()) {
+    const { data, error } = await supabaseAdmin!
+      .from('share_links')
+      .select('*')
+      .eq('token', token)
+      .maybeSingle();
+
+    if (error) throw new Error('Unable to load the share link from Supabase.');
+    return data ? mapShareLinkRow(data as ShareLinkDatabaseRow) : null;
+  }
+
   return shareLinkStore.get(token) ?? null;
 }
 
-export function getShareRecordBySlug(slug: string) {
+export async function getShareRecordBySlug(slug: string): Promise<ShareLinkRecord | null> {
+  if (isPersistentStoreEnabled()) {
+    const normalized = normalizeCustomSlug(slug);
+    if (!normalized) return null;
+
+    const { data, error } = await supabaseAdmin!
+      .from('share_links')
+      .select('*')
+      .eq('custom_slug', normalized)
+      .maybeSingle();
+
+    if (error) throw new Error('Unable to load the share link from Supabase.');
+    return data ? mapShareLinkRow(data as ShareLinkDatabaseRow) : null;
+  }
+
   const token = shareSlugIndex.get(normalizeCustomSlug(slug) ?? '');
   return token ? shareLinkStore.get(token) ?? null : null;
 }
 
-export function getShareRecordByIdentifier(identifier: string) {
+export async function getShareRecordByIdentifier(identifier: string): Promise<ShareLinkRecord | null> {
   const legacyToken = identifier.match(/-([A-Za-z0-9]{24})$/)?.[1];
-  return getShareRecordByToken(identifier)
-    ?? getShareRecordBySlug(identifier)
-    ?? (legacyToken ? getShareRecordByToken(legacyToken) : null);
+
+  const tokenMatch = await getShareRecordByToken(identifier);
+  if (tokenMatch) return tokenMatch;
+
+  const slugMatch = await getShareRecordBySlug(identifier);
+  if (slugMatch) return slugMatch;
+
+  return legacyToken ? getShareRecordByToken(legacyToken) : null;
 }
 
-export function listShareLinksForOwner(ownerId: string) {
+export async function listShareLinksForOwner(ownerId: string): Promise<ShareLinkRecord[]> {
+  if (isPersistentStoreEnabled()) {
+    const { data, error } = await supabaseAdmin!
+      .from('share_links')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .order('created_at', { ascending: false });
+
+    if (error || !data) throw new Error('Unable to load share links from Supabase.');
+    return data.map((row) => mapShareLinkRow(row as ShareLinkDatabaseRow));
+  }
+
   return Array.from(shareLinkStore.values())
     .filter((item) => item.ownerId === ownerId)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
-export function deleteShareLinksForFile(fileId: string) {
+export async function deleteShareLinksForFile(fileId: string): Promise<void> {
+  if (isPersistentStoreEnabled()) {
+    const { error } = await supabaseAdmin!
+      .from('share_links')
+      .delete()
+      .contains('file_ids', [fileId]);
+
+    if (error) throw new Error('Unable to remove share links associated with the file.');
+    return;
+  }
+
   for (const [token, record] of shareLinkStore) {
     if (!getShareFileIds(record).includes(fileId)) {
       continue;
@@ -318,7 +447,19 @@ export function deleteShareLinksForFile(fileId: string) {
   }
 }
 
-export function revokeShareLinkById(id: string) {
+export async function revokeShareLinkById(id: string): Promise<ShareLinkRecord | null> {
+  if (isPersistentStoreEnabled()) {
+    const { data, error } = await supabaseAdmin!
+      .from('share_links')
+      .update({ is_revoked: true, is_active: false, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*')
+      .maybeSingle();
+
+    if (error) throw new Error('Unable to revoke the share link in Supabase.');
+    return data ? mapShareLinkRow(data as ShareLinkDatabaseRow) : null;
+  }
+
   const record = Array.from(shareLinkStore.values()).find((item) => item.id === id);
   if (!record) {
     return null;
@@ -330,10 +471,22 @@ export function revokeShareLinkById(id: string) {
   return record;
 }
 
-export function incrementShareDownload(token: string) {
-  const record = getShareRecordByToken(token);
+export async function incrementShareDownload(token: string): Promise<ShareLinkRecord | null> {
+  const record = await getShareRecordByToken(token);
   if (!record) {
     return null;
+  }
+
+  if (isPersistentStoreEnabled()) {
+    const { data, error } = await supabaseAdmin!
+      .from('share_links')
+      .update({ download_count: record.downloadCount + 1, updated_at: new Date().toISOString() })
+      .eq('token', token)
+      .select('*')
+      .maybeSingle();
+
+    if (error) throw new Error('Unable to update the share download count in Supabase.');
+    return data ? mapShareLinkRow(data as ShareLinkDatabaseRow) : null;
   }
 
   record.downloadCount += 1;

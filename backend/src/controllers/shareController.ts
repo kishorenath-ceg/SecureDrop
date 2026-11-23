@@ -42,7 +42,7 @@ export async function listShareLinksController(
     });
   }
 
-  const links = listShareLinksForOwner(user.id);
+  const links = await listShareLinksForOwner(user.id);
 
   return reply.send({
     success: true,
@@ -78,7 +78,7 @@ export async function revokeShareLinkController(
   }
 
   const id = (request.params as { id?: string }).id ?? '';
-  const revoked = revokeShareLinkById(id);
+  const revoked = await revokeShareLinkById(id);
 
   if (!revoked) {
     return reply.code(404).send({
@@ -142,7 +142,7 @@ export async function createShareLinkController(
     const defaultSlug = fileIds.length === 1 ? ownedFiles[0].originalName : 'secure-transfer';
     const slug = normalizeCustomSlug(payload.customSlug ?? defaultSlug) ?? 'secure-transfer';
     const passwordHash = payload.password ? await hashPassword(payload.password) : null;
-    if (getShareRecordBySlug(slug)) {
+    if (await getShareRecordBySlug(slug)) {
       return reply.code(409).send({
         success: false,
         error: {
@@ -152,7 +152,7 @@ export async function createShareLinkController(
       });
     }
 
-    const record = createShareRecord({
+    const record = await createShareRecord({
       ownerId: user.id,
       token,
       customSlug: slug,
@@ -183,11 +183,18 @@ export async function createShareLinkController(
       },
     });
   } catch (error) {
-    return reply.code(400).send({
+    const message = error instanceof Error ? error.message : 'Invalid share link configuration.';
+    const duplicateLink = message.includes('already in use.');
+    const persistenceFailure = message === 'Unable to save the share link in Supabase.';
+    if (persistenceFailure) {
+      request.log.error({ err: error }, 'Unable to persist a share link');
+    }
+
+    return reply.code(duplicateLink ? 409 : persistenceFailure ? 500 : 400).send({
       success: false,
       error: {
-        code: 'INVALID_SHARE_CONFIG',
-        message: error instanceof Error ? error.message : 'Invalid share link configuration.',
+        code: duplicateLink ? 'SHARE_SLUG_TAKEN' : persistenceFailure ? 'SHARE_STORAGE_FAILED' : 'INVALID_SHARE_CONFIG',
+        message,
       },
     });
   }
@@ -209,7 +216,7 @@ export async function publicShareStatusController(
     });
   }
 
-  const share = getShareRecordByIdentifier(token);
+  const share = await getShareRecordByIdentifier(token);
 
   if (!share) {
     return reply.code(404).send({
@@ -284,7 +291,7 @@ export async function downloadShareController(
     });
   }
 
-  const share = getShareRecordByIdentifier(token);
+  const share = await getShareRecordByIdentifier(token);
 
   if (!share) {
     return reply.code(404).send({
@@ -333,7 +340,7 @@ export async function downloadShareController(
     });
   }
 
-  incrementShareDownload(share.token);
+  await incrementShareDownload(share.token);
   const ticket = createShareDownloadTicket(share.token);
   return reply.send({
     success: true,
@@ -374,7 +381,7 @@ export async function serveShareDownloadController(
     });
   }
 
-  const share = getShareRecordByToken(token);
+  const share = await getShareRecordByToken(token);
   if (!share || !share.isActive || share.isRevoked) {
     return reply.code(403).send({
       success: false,
@@ -468,7 +475,7 @@ export async function verifyPasswordController(
     });
   }
 
-  const share = getShareRecordByIdentifier(token);
+  const share = await getShareRecordByIdentifier(token);
 
   if (!share) {
     return reply.code(404).send({

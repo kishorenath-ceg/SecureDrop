@@ -20,6 +20,7 @@ vi.mock('../services/fileService.js', () => ({
   getOwnedFile: vi.fn(async (id: string) => fileStore.items.get(id) ?? null),
   readStoredFile: vi.fn(async (file: { buffer?: Buffer }) => file.buffer ?? Buffer.alloc(0)),
 }));
+vi.mock('../config/supabase.js', () => ({ supabaseAdmin: null }));
 
 import { createShareLinkController } from './shareController.js';
 import { fileRoutes } from '../routes/fileRoutes.js';
@@ -67,7 +68,7 @@ describe('shared ZIP downloads', () => {
   });
 
   afterEach(async () => {
-    deleteShareLinksForFile(fileIds[0]);
+    await deleteShareLinksForFile(fileIds[0]);
     await app.close();
     fileStore.items.clear();
     vi.clearAllMocks();
@@ -107,7 +108,7 @@ describe('shared ZIP downloads', () => {
   });
 
   it('creates one authorized ZIP download for all files and consumes its ticket once', async () => {
-    const share = createShareRecord({
+    const share = await createShareRecord({
       ownerId: 'bundle-owner',
       fileIds,
       customSlug: 'team-transfer',
@@ -151,7 +152,7 @@ describe('shared ZIP downloads', () => {
   });
 
   it('requires the share password before issuing a ZIP download ticket', async () => {
-    const share = createShareRecord({
+    const share = await createShareRecord({
       ownerId: 'bundle-owner',
       fileIds,
       passwordHash: await hashPassword('BundlePass123!'),

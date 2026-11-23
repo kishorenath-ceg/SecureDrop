@@ -243,7 +243,7 @@ export async function deleteOwnedFile(fileId: string, ownerId: string) {
     uploadedFiles.delete(fileId);
   }
 
-  deleteShareLinksForFile(fileId);
+  await deleteShareLinksForFile(fileId);
   return true;
 }
 

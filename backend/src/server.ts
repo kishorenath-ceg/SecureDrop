@@ -8,6 +8,8 @@ import { dashboardRoutes } from './routes/dashboardRoutes.js';
 import { fileRoutes } from './routes/fileRoutes.js';
 import { profileRoutes } from './routes/profileRoutes.js';
 import { shareRoutes } from './routes/shareRoutes.js';
+import { supabaseAdmin } from './config/supabase.js';
+import { isPersistentStorageAvailable } from './services/supabaseService.js';
 
 dotenv.config({ path: '../.env' });
 
@@ -52,6 +54,7 @@ function isLocalDevelopmentOrigin(origin?: string) {
 const app = Fastify({
   logger: true,
 });
+const persistentStorageAvailable = isPersistentStorageAvailable(supabaseAdmin);
 
 app.addHook('onRequest', async (_request, reply) => {
   reply.header('X-Frame-Options', 'DENY');
@@ -95,12 +98,19 @@ app.get('/health', async () => ({
   data: {
     status: 'ok',
     service: 'securedrop-backend',
+    storageMode: persistentStorageAvailable ? 'persistent' : 'in-memory',
     time: new Date().toISOString(),
   },
 }));
 
 const start = async () => {
   try {
+    if (process.env.NODE_ENV === 'production' && !persistentStorageAvailable) {
+      throw new Error(
+        'Production requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY. Refusing to start with temporary in-memory file storage.'
+      );
+    }
+
     const port = Number(process.env.PORT ?? 3001);
     const host = process.env.HOST ?? '0.0.0.0';
 
