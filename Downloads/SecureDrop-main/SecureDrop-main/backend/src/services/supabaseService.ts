@@ -8,6 +8,10 @@ export function isSupabaseConfigured(url?: string) {
   return Boolean(candidate) && candidate.includes('supabase.co') && !candidate.includes('example.supabase.co');
 }
 
+export function isPersistentStorageAvailable(client: unknown, url?: string) {
+  return Boolean(client) && isSupabaseConfigured(url);
+}
+
 export function buildSupabaseStoragePath(userId: string, originalName: string) {
   const safeName = (originalName || 'file')
     .split(/[\\/]/)
