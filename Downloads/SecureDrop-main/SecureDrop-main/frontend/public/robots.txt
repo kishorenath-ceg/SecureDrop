@@ -1,4 +1,9 @@
 User-agent: *
 Allow: /
+Disallow: /login
+Disallow: /dashboard
+Disallow: /upload
+Disallow: /s/
+Disallow: /SecureDrop/
 
 Sitemap: https://securedrop.kishorenath.me/sitemap.xml
