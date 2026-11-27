@@ -1,6 +1,14 @@
 import { pbkdf2, randomBytes, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase.js';
+import {
+  CACHE_TTL_SECONDS,
+  cacheDelete,
+  cacheGet,
+  cacheSet,
+  invalidateDashboardStatsCache,
+  publicShareLookupCacheKey,
+} from './redisCache.js';
 import { isSupabaseConfigured } from './supabaseService.js';
 
 const PBKDF2_ITERATIONS = 60_000;
@@ -332,7 +340,9 @@ export async function createShareRecord(input: {
         : 'Unable to save the share link in Supabase.');
     }
 
-    return mapShareLinkRow(data as ShareLinkDatabaseRow);
+    const record = mapShareLinkRow(data as ShareLinkDatabaseRow);
+    await invalidateDashboardStatsCache(input.ownerId);
+    return record;
   }
 
   const record: ShareLinkRecord = {
@@ -358,6 +368,7 @@ export async function createShareRecord(input: {
     shareSlugIndex.set(customSlug, token);
   }
 
+  await invalidateDashboardStatsCache(input.ownerId);
   return record;
 }
 
@@ -374,6 +385,21 @@ export async function getShareRecordByToken(token: string): Promise<ShareLinkRec
   }
 
   return shareLinkStore.get(token) ?? null;
+}
+
+async function getShareRecordById(id: string): Promise<ShareLinkRecord | null> {
+  if (isPersistentStoreEnabled()) {
+    const { data, error } = await supabaseAdmin!
+      .from('share_links')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) throw new Error('Unable to load the share link from Supabase.');
+    return data ? mapShareLinkRow(data as ShareLinkDatabaseRow) : null;
+  }
+
+  return Array.from(shareLinkStore.values()).find((share) => share.id === id) ?? null;
 }
 
 export async function getShareRecordBySlug(slug: string): Promise<ShareLinkRecord | null> {
@@ -397,14 +423,38 @@ export async function getShareRecordBySlug(slug: string): Promise<ShareLinkRecor
 
 export async function getShareRecordByIdentifier(identifier: string): Promise<ShareLinkRecord | null> {
   const legacyToken = identifier.match(/-([A-Za-z0-9]{24})$/)?.[1];
+  const cacheKey = publicShareLookupCacheKey(identifier);
+  const cachedShareId = await cacheGet<string>(cacheKey);
+
+  if (cachedShareId) {
+    const cachedShare = await getShareRecordById(cachedShareId);
+    const matchesIdentifier = cachedShare && (
+      cachedShare.token === identifier ||
+      cachedShare.customSlug === normalizeCustomSlug(identifier) ||
+      legacyToken === cachedShare.token
+    );
+
+    if (matchesIdentifier) {
+      return cachedShare;
+    }
+
+    await cacheDelete(cacheKey);
+  }
+
+  const cacheLookup = async (share: ShareLinkRecord | null) => {
+    if (share) {
+      await cacheSet(cacheKey, share.id, CACHE_TTL_SECONDS.publicShareLookup);
+    }
+    return share;
+  };
 
   const tokenMatch = await getShareRecordByToken(identifier);
-  if (tokenMatch) return tokenMatch;
+  if (tokenMatch) return cacheLookup(tokenMatch);
 
   const slugMatch = await getShareRecordBySlug(identifier);
-  if (slugMatch) return slugMatch;
+  if (slugMatch) return cacheLookup(slugMatch);
 
-  return legacyToken ? getShareRecordByToken(legacyToken) : null;
+  return legacyToken ? cacheLookup(await getShareRecordByToken(legacyToken)) : null;
 }
 
 export async function listShareLinksForOwner(ownerId: string): Promise<ShareLinkRecord[]> {
@@ -447,20 +497,26 @@ export async function deleteShareLinksForFile(fileId: string): Promise<void> {
   }
 }
 
-export async function revokeShareLinkById(id: string): Promise<ShareLinkRecord | null> {
+export async function revokeShareLinkById(id: string, ownerId: string): Promise<ShareLinkRecord | null> {
   if (isPersistentStoreEnabled()) {
     const { data, error } = await supabaseAdmin!
       .from('share_links')
       .update({ is_revoked: true, is_active: false, updated_at: new Date().toISOString() })
       .eq('id', id)
+      .eq('owner_id', ownerId)
       .select('*')
       .maybeSingle();
 
     if (error) throw new Error('Unable to revoke the share link in Supabase.');
-    return data ? mapShareLinkRow(data as ShareLinkDatabaseRow) : null;
+    if (!data) return null;
+
+    const record = mapShareLinkRow(data as ShareLinkDatabaseRow);
+    await invalidateDashboardStatsCache(ownerId);
+    await invalidateShareLookupCaches(record);
+    return record;
   }
 
-  const record = Array.from(shareLinkStore.values()).find((item) => item.id === id);
+  const record = Array.from(shareLinkStore.values()).find((item) => item.id === id && item.ownerId === ownerId);
   if (!record) {
     return null;
   }
@@ -468,7 +524,18 @@ export async function revokeShareLinkById(id: string): Promise<ShareLinkRecord |
   record.isRevoked = true;
   record.isActive = false;
   record.updatedAt = new Date().toISOString();
+  await invalidateDashboardStatsCache(ownerId);
+  await invalidateShareLookupCaches(record);
   return record;
+}
+
+async function invalidateShareLookupCaches(record: ShareLinkRecord) {
+  await Promise.all([
+    cacheDelete(publicShareLookupCacheKey(record.token)),
+    record.customSlug
+      ? cacheDelete(publicShareLookupCacheKey(record.customSlug))
+      : Promise.resolve(false),
+  ]);
 }
 
 export async function incrementShareDownload(token: string): Promise<ShareLinkRecord | null> {
@@ -486,11 +553,16 @@ export async function incrementShareDownload(token: string): Promise<ShareLinkRe
       .maybeSingle();
 
     if (error) throw new Error('Unable to update the share download count in Supabase.');
-    return data ? mapShareLinkRow(data as ShareLinkDatabaseRow) : null;
+    if (!data) return null;
+
+    const updatedRecord = mapShareLinkRow(data as ShareLinkDatabaseRow);
+    await invalidateDashboardStatsCache(record.ownerId);
+    return updatedRecord;
   }
 
   record.downloadCount += 1;
   record.updatedAt = new Date().toISOString();
+  await invalidateDashboardStatsCache(record.ownerId);
   return record;
 }
 

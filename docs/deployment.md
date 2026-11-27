@@ -39,3 +39,11 @@ Set `VITE_TURNSTILE_SITE_KEY` in `frontend/.env.local` for local development and
 The login, registration, and password-reset flows send the Turnstile token directly to Supabase Auth. Keep Cloudflare Turnstile CAPTCHA configured in Supabase Auth with the widget's secret key. The backend currently has no custom login, registration, or password-reset endpoints, so it does not need a separate Siteverify request for these flows.
 
 For local testing, allow `localhost` in the Turnstile widget configuration, set the site key in `frontend/.env.local`, and restart Vite. Verify that each auth form stays disabled until the challenge succeeds, that expired or failed challenges require another verification, and that each submission is accepted or rejected by Supabase Auth. For production, set the same widget's site key in Vercel and ensure the production hostname is allowed by the widget.
+
+## Upstash Redis
+
+Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` only in the backend environment (for example, Render or `backend/.env`). These credentials must never be exposed to the Vite frontend. Redis is optional: if it is unconfigured or unavailable, cache operations fall back to Supabase and the existing in-process global rate limit remains active.
+
+The backend caches authenticated dashboard statistics for 30 seconds and per-user file metadata for 45 seconds. Public share lookup caching stores only a hashed-key lookup hint from the public identifier to the share-record ID for 15 seconds; every use fetches the current share record from Supabase before checking expiry, password protection, revocation, or download limits. File buffers, passwords, password hashes, sessions, and access/refresh tokens are not cached.
+
+Redis-backed sliding-window limits are 120 requests/minute for `/api/auth/session`, 20 share creations/minute per authenticated user, 8 password-verification attempts/minute per share, and 30 public download attempts/minute per share. The existing global in-process limit also remains active. Signup and login are performed directly through Supabase Auth, so they have no backend endpoints to rate-limit; keep Supabase Auth's own protections enabled. The backend has no file-update endpoint; successful uploads and deletes invalidate the affected user's file-list and dashboard caches.

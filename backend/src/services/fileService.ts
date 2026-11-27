@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase.js';
+import {
+  CACHE_TTL_SECONDS,
+  cacheGet,
+  cacheSet,
+  fileListCacheKey,
+  invalidateUserDataCaches,
+} from './redisCache.js';
 import { deleteShareLinksForFile } from './shareService.js';
 import { buildSupabaseStoragePath, DEFAULT_STORAGE_BUCKET, isSupabaseConfigured } from './supabaseService.js';
 
@@ -160,7 +167,14 @@ export async function createUploadRecord(input: {
   };
 }
 
-export async function listFilesForOwner(ownerId: string) {
+export async function listFilesForOwner(ownerId: string): Promise<Array<Omit<StoredFileRecord, 'buffer'>>> {
+  const cacheKey = fileListCacheKey(ownerId);
+  const cachedFiles = await cacheGet<Array<Omit<StoredFileRecord, 'buffer'>>>(cacheKey);
+  if (cachedFiles) {
+    return cachedFiles;
+  }
+
+  let files: StoredFileRecord[];
   if (supabaseAdmin && isSupabaseConfigured()) {
     const { data, error } = await supabaseAdmin
       .from('files')
@@ -174,12 +188,16 @@ export async function listFilesForOwner(ownerId: string) {
       throw new Error('Unable to load file metadata from Supabase.');
     }
 
-    return data.map((row) => mapFileRow(row as FileDatabaseRow));
+    files = data.map((row) => mapFileRow(row as FileDatabaseRow));
+  } else {
+    files = Array.from(uploadedFiles.values())
+      .filter((file) => file.ownerId === ownerId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
-  return Array.from(uploadedFiles.values())
-    .filter((file) => file.ownerId === ownerId)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const metadata = files.map(({ buffer: _buffer, ...file }) => file);
+  await cacheSet(cacheKey, metadata, CACHE_TTL_SECONDS.fileList);
+  return metadata;
 }
 
 export async function getOwnedFile(fileId: string, ownerId: string) {
@@ -243,7 +261,12 @@ export async function deleteOwnedFile(fileId: string, ownerId: string) {
     uploadedFiles.delete(fileId);
   }
 
-  await deleteShareLinksForFile(fileId);
+  try {
+    await deleteShareLinksForFile(fileId);
+  } finally {
+    await invalidateUserDataCaches(ownerId);
+  }
+
   return true;
 }
 
@@ -269,6 +292,8 @@ export async function getFileById(fileId: string) {
 }
 
 export async function storeUploadedFile(record: StoredFileRecord, buffer: Buffer) {
+  let storedFile: StoredFileRecord;
+
   if (supabaseAdmin && isSupabaseConfigured()) {
     const storage = supabaseAdmin.storage.from(DEFAULT_STORAGE_BUCKET);
     const { error: storageError } = await storage.upload(record.storagePath, buffer, {
@@ -314,12 +339,14 @@ export async function storeUploadedFile(record: StoredFileRecord, buffer: Buffer
       );
     }
 
-    return mapFileRow(data as FileDatabaseRow);
+    storedFile = mapFileRow(data as FileDatabaseRow);
+  } else {
+    storedFile = { ...record, buffer };
+    uploadedFiles.set(record.id, storedFile);
   }
 
-  const localRecord = { ...record, buffer };
-  uploadedFiles.set(record.id, localRecord);
-  return localRecord;
+  await invalidateUserDataCaches(record.ownerId);
+  return storedFile;
 }
 
 export async function readStoredFile(file: StoredFileRecord) {

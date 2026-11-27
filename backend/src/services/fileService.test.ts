@@ -1,4 +1,12 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const cacheMocks = vi.hoisted(() => ({
+  get: vi.fn(),
+  set: vi.fn(),
+  delete: vi.fn(),
+  invalidateUser: vi.fn(),
+  invalidateDashboard: vi.fn(),
+}));
 
 vi.mock('../config/supabase.js', () => ({ supabaseAdmin: null }));
 vi.mock('./supabaseService.js', () => ({
@@ -6,9 +14,35 @@ vi.mock('./supabaseService.js', () => ({
   DEFAULT_STORAGE_BUCKET: 'files',
   isSupabaseConfigured: () => false,
 }));
+vi.mock('./redisCache.js', () => ({
+  CACHE_TTL_SECONDS: { fileList: 45, publicShareLookup: 15 },
+  cacheGet: cacheMocks.get,
+  cacheSet: cacheMocks.set,
+  cacheDelete: cacheMocks.delete,
+  fileListCacheKey: (userId: string) => `files:${userId}`,
+  publicShareLookupCacheKey: (identifier: string) => `share:${identifier}`,
+  invalidateUserDataCaches: cacheMocks.invalidateUser,
+  invalidateDashboardStatsCache: cacheMocks.invalidateDashboard,
+}));
 
-import { createUploadRecord, deleteOwnedFile, type StoredFileRecord, uploadedFiles, uploadFileSchema } from './fileService.js';
+import {
+  createUploadRecord,
+  deleteOwnedFile,
+  listFilesForOwner,
+  storeUploadedFile,
+  type StoredFileRecord,
+  uploadedFiles,
+  uploadFileSchema,
+} from './fileService.js';
 import { createShareRecord, getShareRecordBySlug, getShareRecordByToken } from './shareService.js';
+
+beforeEach(() => {
+  cacheMocks.get.mockReset().mockResolvedValue(null);
+  cacheMocks.set.mockReset().mockResolvedValue(true);
+  cacheMocks.delete.mockReset().mockResolvedValue(true);
+  cacheMocks.invalidateUser.mockReset().mockResolvedValue(undefined);
+  cacheMocks.invalidateDashboard.mockReset().mockResolvedValue(undefined);
+});
 
 afterEach(() => {
   uploadedFiles.clear();
@@ -63,6 +97,49 @@ describe('upload file schema', () => {
     expect(uploadedFiles.has(file.id)).toBe(true);
   });
 
+  it('caches owner-scoped file metadata without including file contents', async () => {
+    const firstOwnerFile: StoredFileRecord = {
+      id: 'file-owner-one',
+      ownerId: 'owner-1',
+      originalName: 'one.txt',
+      storagePath: 'owner-1/one.txt',
+      mimeType: 'text/plain',
+      sizeBytes: 4,
+      createdAt: new Date().toISOString(),
+      status: 'uploaded',
+      buffer: Buffer.from('secret contents'),
+    };
+    const secondOwnerFile: StoredFileRecord = {
+      ...firstOwnerFile,
+      id: 'file-owner-two',
+      ownerId: 'owner-2',
+      originalName: 'two.txt',
+      storagePath: 'owner-2/two.txt',
+    };
+    uploadedFiles.set(firstOwnerFile.id, firstOwnerFile);
+    uploadedFiles.set(secondOwnerFile.id, secondOwnerFile);
+
+    const files = await listFilesForOwner('owner-1');
+
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatchObject({ id: 'file-owner-one', ownerId: 'owner-1' });
+    expect(files[0]).not.toHaveProperty('buffer');
+    expect(cacheMocks.set).toHaveBeenCalledWith('files:owner-1', files, 45);
+  });
+
+  it('invalidates owner caches after a successful upload', async () => {
+    const record = await createUploadRecord({
+      originalName: 'new-file.txt',
+      mimeType: 'text/plain',
+      sizeBytes: 10,
+      userId: 'owner-upload',
+    });
+
+    await storeUploadedFile(record, Buffer.from('contents'));
+
+    expect(cacheMocks.invalidateUser).toHaveBeenCalledWith('owner-upload');
+  });
+
   it('removes the owned file and its in-memory share link', async () => {
     const file: StoredFileRecord = {
       id: 'file-delete',
@@ -86,5 +163,6 @@ describe('upload file schema', () => {
     expect(uploadedFiles.has(file.id)).toBe(false);
     await expect(getShareRecordByToken(share.token)).resolves.toBeNull();
     await expect(getShareRecordBySlug('delete-file-test')).resolves.toBeNull();
+    expect(cacheMocks.invalidateUser).toHaveBeenCalledWith('owner-1');
   });
 });

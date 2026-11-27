@@ -33,6 +33,8 @@ const envSchema = z.object({
     z.string().min(10).optional()
   ),
   SUPABASE_STORAGE_BUCKET: z.string().default('files'),
+  UPSTASH_REDIS_REST_URL: z.string().default('').transform((value) => value.trim()),
+  UPSTASH_REDIS_REST_TOKEN: z.string().default('').transform((value) => value.trim()),
   APP_URL: z.string().url().default('https://securedrop.kishorenath.me'),
   API_URL: z.string().url().default('https://securedrop-backend-9p6w.onrender.com'),
   PORT: z.coerce.number().default(3001),

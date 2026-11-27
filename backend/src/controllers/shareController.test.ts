@@ -25,7 +25,12 @@ vi.mock('../config/supabase.js', () => ({ supabaseAdmin: null }));
 import { createShareLinkController } from './shareController.js';
 import { fileRoutes } from '../routes/fileRoutes.js';
 import { shareRoutes } from '../routes/shareRoutes.js';
-import { createShareRecord, deleteShareLinksForFile, hashPassword } from '../services/shareService.js';
+import {
+  createShareRecord,
+  deleteShareLinksForFile,
+  hashPassword,
+  revokeShareLinkById,
+} from '../services/shareService.js';
 
 describe('shared ZIP downloads', () => {
   let app: FastifyInstance;
@@ -182,5 +187,38 @@ describe('shared ZIP downloads', () => {
       payload: { password: 'BundlePass123!' },
     });
     expect(allowed.statusCode).toBe(200);
+  });
+
+  it('rejects password verification for expired or revoked links', async () => {
+    const passwordHash = await hashPassword('BundlePass123!');
+    const expiredShare = await createShareRecord({
+      ownerId: 'bundle-owner',
+      fileIds,
+      passwordHash,
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    const expiredResponse = await app.inject({
+      method: 'POST',
+      url: `/api/share/${expiredShare.token}/verify-password`,
+      payload: { password: 'BundlePass123!' },
+    });
+    expect(expiredResponse.statusCode).toBe(410);
+    expect(JSON.parse(expiredResponse.body).error.code).toBe('LINK_EXPIRED');
+
+    const revokedShare = await createShareRecord({
+      ownerId: 'bundle-owner',
+      fileIds,
+      passwordHash,
+    });
+    await revokeShareLinkById(revokedShare.id, 'bundle-owner');
+
+    const revokedResponse = await app.inject({
+      method: 'POST',
+      url: `/api/share/${revokedShare.token}/verify-password`,
+      payload: { password: 'BundlePass123!' },
+    });
+    expect(revokedResponse.statusCode).toBe(403);
+    expect(JSON.parse(revokedResponse.body).error.code).toBe('LINK_DISABLED');
   });
 });

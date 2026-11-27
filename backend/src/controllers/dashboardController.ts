@@ -3,6 +3,12 @@ import { env } from '../config/env.js';
 import { listFilesForOwner } from '../services/fileService.js';
 import { buildDashboardStats, summarizeDashboard } from '../services/dashboardService.js';
 import { buildPublicShareUrl, getShareFileIds, listShareLinksForOwner } from '../services/shareService.js';
+import {
+  CACHE_TTL_SECONDS,
+  cacheGet,
+  cacheSet,
+  dashboardStatsCacheKey,
+} from '../services/redisCache.js';
 
 export async function dashboardStatsController(
   request: FastifyRequest,
@@ -20,19 +26,27 @@ export async function dashboardStatsController(
     });
   }
 
+  const cacheKey = dashboardStatsCacheKey(user.id);
+  const cachedStats = await cacheGet<ReturnType<typeof buildDashboardStats>>(cacheKey);
+  if (cachedStats) {
+    return reply.send({ success: true, data: cachedStats });
+  }
+
   const files = await listFilesForOwner(user.id);
   const shareLinks = await listShareLinksForOwner(user.id);
   const stats = summarizeDashboard({ files, shareLinks });
+  const response = buildDashboardStats({
+    totalFiles: stats.totalFiles,
+    activeLinks: stats.activeLinks,
+    expiredLinks: stats.expiredLinks,
+    totalDownloads: stats.totalDownloads,
+    storageUsedBytes: files.reduce((sum, file) => sum + Number(file.sizeBytes ?? 0), 0),
+  });
+  await cacheSet(cacheKey, response, CACHE_TTL_SECONDS.dashboardStats);
 
   return reply.send({
     success: true,
-    data: buildDashboardStats({
-      totalFiles: stats.totalFiles,
-      activeLinks: stats.activeLinks,
-      expiredLinks: stats.expiredLinks,
-      totalDownloads: stats.totalDownloads,
-      storageUsedBytes: files.reduce((sum, file) => sum + Number(file.sizeBytes ?? 0), 0),
-    }),
+    data: response,
   });
 }
 

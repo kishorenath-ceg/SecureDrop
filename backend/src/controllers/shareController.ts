@@ -78,7 +78,7 @@ export async function revokeShareLinkController(
   }
 
   const id = (request.params as { id?: string }).id ?? '';
-  const revoked = await revokeShareLinkById(id);
+  const revoked = await revokeShareLinkById(id, user.id);
 
   if (!revoked) {
     return reply.code(404).send({
@@ -483,6 +483,31 @@ export async function verifyPasswordController(
       error: {
         code: 'SHARE_NOT_FOUND',
         message: 'The requested share link does not exist.',
+      },
+    });
+  }
+
+  const access = await evaluateShareAccess({
+    expiresAt: share.expiresAt,
+    isActive: share.isActive,
+    isRevoked: share.isRevoked,
+    passwordHash: null,
+    downloadCount: share.downloadCount,
+    maxDownloads: share.maxDownloads,
+  });
+
+  if (!access.allowed) {
+    const expired = access.reason === 'LINK_EXPIRED';
+    const limitReached = access.reason === 'DOWNLOAD_LIMIT_REACHED';
+    return reply.code(expired ? 410 : 403).send({
+      success: false,
+      error: {
+        code: access.reason ?? 'DOWNLOAD_FORBIDDEN',
+        message: expired
+          ? 'This sharing link has expired.'
+          : limitReached
+            ? 'This sharing link has reached its download limit.'
+            : 'This download is not permitted.',
       },
     });
   }
