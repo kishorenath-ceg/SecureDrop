@@ -31,3 +31,11 @@ Files or links uploaded while the backend was using in-memory storage cannot be 
 The frontend build prerenders the public landing page into `frontend/dist/index.html`. Keep the prerender step in the frontend build script so search crawlers can read the homepage content without waiting for client-side rendering. The sitemap intentionally lists only the homepage; add routes only when they are public and intended for indexing.
 
 For Vercel, deploy the frontend project with `frontend` as its root directory and use `npm run build` with `dist` as the output directory. After deployment, verify `https://securedrop.kishorenath.me/`, `/robots.txt`, and `/sitemap.xml`; the sitemap should list only `https://securedrop.kishorenath.me/`.
+
+## Authentication CAPTCHA
+
+Set `VITE_TURNSTILE_SITE_KEY` in `frontend/.env.local` for local development and in the Vercel frontend environment for production. The site key is public; never put the Turnstile secret key in a `VITE_` variable or frontend file.
+
+The login, registration, and password-reset flows send the Turnstile token directly to Supabase Auth. Keep Cloudflare Turnstile CAPTCHA configured in Supabase Auth with the widget's secret key. The backend currently has no custom login, registration, or password-reset endpoints, so it does not need a separate Siteverify request for these flows.
+
+For local testing, allow `localhost` in the Turnstile widget configuration, set the site key in `frontend/.env.local`, and restart Vite. Verify that each auth form stays disabled until the challenge succeeds, that expired or failed challenges require another verification, and that each submission is accepted or rejected by Supabase Auth. For production, set the same widget's site key in Vercel and ensure the production hostname is allowed by the widget.

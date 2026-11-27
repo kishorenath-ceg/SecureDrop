@@ -45,6 +45,7 @@ export async function registerUser(payload: {
   email: string;
   password: string;
   displayName?: string;
+  captchaToken: string;
 }): Promise<AuthApiResponse<AuthResult>> {
   if (!supabase) {
     return mapSupabaseError('SUPABASE_NOT_CONFIGURED', 'Supabase Auth is not configured yet.');
@@ -57,6 +58,7 @@ export async function registerUser(payload: {
       data: {
         display_name: payload.displayName ?? payload.email.split('@')[0],
       },
+      captchaToken: payload.captchaToken,
     },
   });
 
@@ -79,7 +81,11 @@ export async function registerUser(payload: {
   };
 }
 
-export async function loginUser(payload: { email: string; password: string }): Promise<AuthApiResponse<AuthResult>> {
+export async function loginUser(payload: {
+  email: string;
+  password: string;
+  captchaToken: string;
+}): Promise<AuthApiResponse<AuthResult>> {
   if (!supabase) {
     return mapSupabaseError('SUPABASE_NOT_CONFIGURED', 'Supabase Auth is not configured yet.');
   }
@@ -87,6 +93,9 @@ export async function loginUser(payload: { email: string; password: string }): P
   const { data, error } = await supabase.auth.signInWithPassword({
     email: payload.email,
     password: payload.password,
+    options: {
+      captchaToken: payload.captchaToken,
+    },
   });
 
   if (error) {
@@ -104,6 +113,30 @@ export async function loginUser(payload: { email: string; password: string }): P
       user,
       token: data.session?.access_token,
       message: 'Signed in successfully.',
+    },
+  };
+}
+
+export async function requestPasswordReset(payload: {
+  email: string;
+  captchaToken: string;
+}): Promise<AuthApiResponse<{ message: string }>> {
+  if (!supabase) {
+    return mapSupabaseError('SUPABASE_NOT_CONFIGURED', 'Supabase Auth is not configured yet.');
+  }
+
+  const { error } = await supabase.auth.resetPasswordForEmail(payload.email, {
+    captchaToken: payload.captchaToken,
+  });
+
+  if (error) {
+    return mapSupabaseError(error.name ?? 'PASSWORD_RESET_FAILED', error.message ?? 'Unable to send the password reset email.');
+  }
+
+  return {
+    success: true,
+    data: {
+      message: 'If an account exists for this email, a password reset link will be sent.',
     },
   };
 }

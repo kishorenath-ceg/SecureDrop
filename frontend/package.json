@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@marsidev/react-turnstile": "^1.6.3",
     "@supabase/supabase-js": "^2.117.2",
     "@tanstack/react-query": "^5.0.0",
     "qrcode.react": "^4.2.0",
