@@ -1,5 +1,10 @@
 User-agent: *
 Allow: /
 
-sitemap:
-https://securedrop.kishorenath.me/sitemap.xml
+Disallow: /login
+Disallow: /dashboard
+Disallow: /upload
+Disallow: /s/
+Disallow: /SecureDrop/
+
+Sitemap: https://securedrop.kishorenath.me/sitemap.xml
